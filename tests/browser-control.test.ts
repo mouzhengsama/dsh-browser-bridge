@@ -7,6 +7,11 @@ import {
 } from '../src/browser/desktop-host.js';
 import type { BridgeConfigSnapshot, BridgeStatus } from '../src/types.js';
 import type { BridgeHttpCarrier } from '../src/http/server.js';
+import { recordJsonlDiagnostic } from '../src/dsh-plugin.js';
+
+vi.mock('../src/dsh-plugin.js', () => ({
+  recordJsonlDiagnostic: vi.fn(),
+}));
 
 type Route = Parameters<BridgeHttpCarrier['register']>[0];
 
@@ -445,5 +450,13 @@ describe('BridgeControlHttpService', () => {
     expect(runtime.updateConfig).toHaveBeenCalledTimes(1);
     expect(runtime.resetPath).toHaveBeenCalledTimes(1);
     expect(runtime.stop).toHaveBeenCalledTimes(1);
+    const connectionDiagnostic = vi.mocked(recordJsonlDiagnostic).mock.calls
+      .map(([, details]) => details)
+      .find((details) => details.action === 'bridge.connection');
+    expect(connectionDiagnostic).toMatchObject({
+      stage: 'control-action-result',
+      resultKind: 'object',
+    });
+    expect(connectionDiagnostic).not.toHaveProperty('resultPreview');
   });
 });

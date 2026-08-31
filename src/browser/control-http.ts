@@ -290,12 +290,11 @@ export class BridgeControlHttpService {
           action: action.action,
         });
         const result = await this.execute(action);
-        void recordJsonlDiagnostic('browser-bridge-control.jsonl', {
-          stage: 'control-action-result',
-          action: action.action,
-          resultKind: typeof result,
-          resultPreview: JSON.stringify(result)?.slice(0, 500),
-        });
+      void recordJsonlDiagnostic('browser-bridge-control.jsonl', {
+        stage: 'control-action-result',
+        action: action.action,
+        resultKind: typeof result,
+      });
         writeJson(res, 200, { ok: true, data: result });
         return;
       }
