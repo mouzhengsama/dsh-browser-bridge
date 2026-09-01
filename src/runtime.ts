@@ -313,10 +313,25 @@ export class BridgeRuntime {
       const publicTunnel = await tunnel.start(http.localOrigin);
       http.allowPublicOrigin(publicTunnel.publicOrigin);
       const publicHealth = `${publicTunnel.publicOrigin}${http.healthPath}`;
+      let publicHealthWarning: string | undefined;
       if (!(this.httpCarrier && publicTunnel.provider === 'none')) {
         stage = 'checking public MCP health';
         console.info(`[dsh-browser-bridge] startup stage: ${stage}`);
-        await this.waitForHealth(publicHealth, this.config.tunnel.publicHealthTimeoutMs, bearerToken);
+        try {
+          await this.waitForHealth(
+            publicHealth,
+            this.config.tunnel.publicHealthTimeoutMs,
+            this.config.allowSecretPathOnly ? undefined : bearerToken,
+          );
+        } catch (error) {
+          // A public URL means the tunnel process registered successfully. If
+          // only the local self-check cannot traverse TUN/proxy DNS, keep the
+          // remote entry available instead of tearing it down.
+          publicHealthWarning = error instanceof Error ? error.message : String(error);
+          console.warn('[dsh-browser-bridge] public health check failed', {
+            error: publicHealthWarning,
+          });
+        }
       }
       const startedAt = new Date().toISOString();
       this.updateStatus({
@@ -327,7 +342,7 @@ export class BridgeRuntime {
         healthUrl: publicHealth,
         tunnelProvider: publicTunnel.provider,
         startedAt,
-        error: undefined,
+        ...(publicHealthWarning ? { error: publicHealthWarning } : { error: undefined }),
       });
       console.info('[dsh-browser-bridge] startup completed');
       this.onStartupDiagnostic?.({
