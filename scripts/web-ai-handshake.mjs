@@ -45,9 +45,25 @@ if (!pathSecret) {
   process.exit(1);
 }
 
-const port = Number(argumentValue('--port'));
-if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+const portArgument = argumentValue('--port');
+const baseUrlArgument = argumentValue('--base-url');
+if (Boolean(portArgument) === Boolean(baseUrlArgument)) {
   usage();
+}
+
+let baseUrl;
+if (portArgument) {
+  const port = Number(portArgument);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    usage();
+  }
+  baseUrl = `http://127.0.0.1:${port}`;
+} else {
+  try {
+    baseUrl = new URL(baseUrlArgument).origin;
+  } catch {
+    usage();
+  }
 }
 
 const allowWrite = hasFlag('--write');
@@ -56,7 +72,7 @@ if (cleanup && !allowWrite) {
   usage();
 }
 
-const mcpUrl = `http://127.0.0.1:${port}/mcp/${encodeURIComponent(pathSecret)}`;
+const mcpUrl = `${baseUrl}/mcp/${encodeURIComponent(pathSecret)}`;
 const headers = bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {};
 const transport = new StreamableHTTPClientTransport(new URL(mcpUrl), {
   requestInit: { headers },
