@@ -205,13 +205,15 @@ describe('dsh plugin entry point', () => {
       adapter,
       httpCarrier: fixture.webServer,
     });
-    expect(fixture.register).toHaveBeenCalledTimes(5);
+    expect(fixture.register).toHaveBeenCalledTimes(7);
     expect(fixture.tools.map((tool) => tool.name)).toEqual([
       'bridge_status',
       'bridge_start',
       'bridge_stop',
       'bridge_reset_path',
       'bridge_connection_info',
+      'bridge_config_get',
+      'bridge_config_update',
     ]);
     expect(fixture.context.effect).toHaveBeenCalledTimes(1);
   });
@@ -249,7 +251,7 @@ describe('dsh plugin entry point', () => {
 
     expect(start).toHaveBeenCalledTimes(1);
     expect(fixture.context.effect).toHaveBeenCalledTimes(1);
-    expect(fixture.tools).toHaveLength(5);
+    expect(fixture.tools).toHaveLength(7);
   });
 
   it('keeps operator-selected tunnel settings across restarts', () => {
@@ -369,6 +371,61 @@ describe('dsh plugin entry point', () => {
     }
     await fixture.effects[0]!();
     expect(runtime.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('updates bridge settings through a local config tool', async () => {
+    const fixture = fakeContext(path.resolve('C:/dsh-workspace'));
+    const runtime = fakeRuntime(Config({}) as BridgeConfig, {
+      getConfigSnapshot: vi.fn(async (): Promise<BridgeConfigSnapshot> => ({
+        editable: true,
+        allowSecretPathOnly: true,
+        allowedOrigins: [],
+        tunnel: {
+          provider: 'cloudflare',
+          cloudflareNamedDomain: '',
+          cloudflareNamedTokenConfigured: false,
+          ngrokDomain: '',
+          ngrokUseHttpProxy: false,
+          localServiceUrl: 'http://127.0.0.1:43131',
+        },
+      })),
+      updateConfig: vi.fn(async (update: BridgeConfigUpdate): Promise<BridgeConfigSnapshot> => ({
+        editable: true,
+        allowSecretPathOnly: update.allowSecretPathOnly === true,
+        allowedOrigins: [],
+        tunnel: {
+          provider: update.tunnel?.provider ?? 'none',
+          cloudflareNamedDomain: '',
+          cloudflareNamedTokenConfigured: false,
+          ngrokDomain: '',
+          ngrokUseHttpProxy: false,
+          localServiceUrl: 'http://127.0.0.1:43131',
+        },
+      })),
+    });
+
+    await apply(
+      fixture.context,
+      Config({}) as DshBridgePluginConfig,
+      {
+        createAdapter: vi.fn(async () => fakeAdapter()),
+        createRuntime: vi.fn(() => runtime),
+      },
+    );
+
+    const update = fixture.tools.find((tool) => tool.name === 'bridge_config_update');
+    expect(update).toBeDefined();
+    await expect(update!.execute({
+      allowSecretPathOnly: true,
+      provider: 'cloudflare',
+    }, undefined)).resolves.toMatchObject({
+      allowSecretPathOnly: true,
+      tunnelProvider: 'cloudflare',
+    });
+    expect(runtime.updateConfig).toHaveBeenCalledWith({
+      allowSecretPathOnly: true,
+      tunnel: { provider: 'cloudflare' },
+    });
   });
 
   it('disposes an adapter if runtime creation fails', async () => {

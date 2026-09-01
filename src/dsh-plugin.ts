@@ -240,6 +240,32 @@ type ConnectionToolOutput = {
   instructions: string;
 };
 
+type ConfigToolOutput = {
+  editable: boolean;
+  allowSecretPathOnly: boolean;
+  tunnelProvider: import('./types.js').TunnelProviderId;
+  cloudflareNamedDomain: string;
+  cloudflareNamedTokenConfigured: boolean;
+  ngrokDomain: string;
+  ngrokUseHttpProxy: boolean;
+  localServiceUrl: string;
+  allowedOrigins: string[];
+};
+
+function configToolOutput(snapshot: import('./types.js').BridgeConfigSnapshot): ConfigToolOutput {
+  return {
+    editable: snapshot.editable,
+    allowSecretPathOnly: snapshot.allowSecretPathOnly,
+    tunnelProvider: snapshot.tunnel.provider,
+    cloudflareNamedDomain: snapshot.tunnel.cloudflareNamedDomain,
+    cloudflareNamedTokenConfigured: snapshot.tunnel.cloudflareNamedTokenConfigured,
+    ngrokDomain: snapshot.tunnel.ngrokDomain,
+    ngrokUseHttpProxy: snapshot.tunnel.ngrokUseHttpProxy,
+    localServiceUrl: snapshot.tunnel.localServiceUrl,
+    allowedOrigins: [...snapshot.allowedOrigins],
+  };
+}
+
 function statusToolOutput(status: BridgeStatus): StatusToolOutput {
   return {
     state: status.state,
@@ -275,6 +301,30 @@ function renderJson(
     text: JSON.stringify(value, null, 2) ?? 'null',
   }];
 }
+
+const configOutputSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    editable: { type: 'boolean', required: true },
+    allowSecretPathOnly: { type: 'boolean', required: true },
+    tunnelProvider: {
+      type: 'string',
+      enum: ['none', 'cloudflare', 'cloudflare-named', 'ngrok'] as const,
+      required: true,
+    },
+    cloudflareNamedDomain: { type: 'string', required: true },
+    cloudflareNamedTokenConfigured: { type: 'boolean', required: true },
+    ngrokDomain: { type: 'string', required: true },
+    ngrokUseHttpProxy: { type: 'boolean', required: true },
+    localServiceUrl: { type: 'string', required: true },
+    allowedOrigins: {
+      type: 'array',
+      items: { type: 'string' },
+      required: true,
+    },
+  },
+} as const;
 
 export async function recordStartupDiagnostic(
   stage: string,
@@ -533,6 +583,54 @@ function registerControlTools(
     },
     async execute() {
       return connectionToolOutput(await runtime.getConnectionInfo());
+    },
+  }));
+
+  tools.register(defineTool({
+    name: 'bridge_config_get',
+    description: 'Return editable Bridge connection and security settings.',
+    parameters: {},
+    output: {
+      schema: configOutputSchema,
+      render: renderJson,
+    },
+    async execute() {
+      return configToolOutput(await runtime.getConfigSnapshot());
+    },
+  }));
+
+  tools.register(defineTool({
+    name: 'bridge_config_update',
+    description:
+      'Update Bridge settings while stopped. Set allowSecretPathOnly true to accept requests without an Authorization header while still rejecting an invalid token.',
+    parameters: {
+      allowSecretPathOnly: { type: 'boolean' },
+      provider: {
+        type: 'string',
+        enum: ['none', 'cloudflare', 'cloudflare-named', 'ngrok'],
+      },
+      cloudflareNamedDomain: { type: 'string' },
+      cloudflareNamedToken: { type: 'string' },
+      ngrokDomain: { type: 'string' },
+      ngrokUseHttpProxy: { type: 'boolean' },
+      allowedOrigins: { type: 'array', items: { type: 'string' } },
+    },
+    output: {
+      schema: configOutputSchema,
+      render: renderJson,
+    },
+    async execute(args) {
+      return configToolOutput(await runtime.updateConfig({
+        ...(args.allowSecretPathOnly === undefined ? {} : { allowSecretPathOnly: args.allowSecretPathOnly }),
+        ...(args.allowedOrigins === undefined ? {} : { allowedOrigins: args.allowedOrigins }),
+        tunnel: {
+          ...(args.provider === undefined ? {} : { provider: args.provider }),
+          ...(args.cloudflareNamedDomain === undefined ? {} : { cloudflareNamedDomain: args.cloudflareNamedDomain }),
+          ...(args.cloudflareNamedToken === undefined ? {} : { cloudflareNamedToken: args.cloudflareNamedToken }),
+          ...(args.ngrokDomain === undefined ? {} : { ngrokDomain: args.ngrokDomain }),
+          ...(args.ngrokUseHttpProxy === undefined ? {} : { ngrokUseHttpProxy: args.ngrokUseHttpProxy }),
+        },
+      }));
     },
   }));
 }
