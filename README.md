@@ -1,5 +1,7 @@
 # dsh Browser Bridge
 
+[中文用户指南](README.zh-CN.md)
+
 Self-hosted, MIT-licensed Bridge plugin for dsh. It exposes the current dsh
 workspace as a protected Streamable HTTP MCP server so a logged-in web AI
 agent can read, search, patch, inspect, and operate the local project.
