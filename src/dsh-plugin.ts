@@ -371,6 +371,8 @@ export async function apply(
     capabilities: config.capabilities,
     commandRuntime: config.commandRuntime,
     tunnelProvider: config.tunnel.provider,
+    savedTunnelProvider: savedConfig?.tunnel.provider,
+    overlayTunnelProvider: configured.tunnel.provider,
   });
   const createAdapter = dependencies.createAdapter
     ?? (async (
