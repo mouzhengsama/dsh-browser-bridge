@@ -232,7 +232,7 @@ export class TunnelManager {
   private async startCloudflareQuick(localOrigin: string): Promise<TunnelHandle> {
     const process = this.processFactory(
       this.config.cloudflaredPath,
-      ['tunnel', '--no-autoupdate', '--url', localOrigin],
+      ['tunnel', '--protocol', 'http2', '--no-autoupdate', '--url', localOrigin],
     );
     const publicOrigin = await this.waitForOrigin(process, 'Cloudflare Quick Tunnel');
     return {
@@ -254,7 +254,7 @@ export class TunnelManager {
     }
     const process = this.processFactory(
       this.config.cloudflaredPath,
-      ['tunnel', '--no-autoupdate', 'run'],
+      ['tunnel', '--protocol', 'http2', '--no-autoupdate', 'run'],
       { TUNNEL_TOKEN: token },
     );
     await this.waitForProcessReady(process, 'Cloudflare Named Tunnel');

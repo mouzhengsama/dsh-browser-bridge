@@ -94,6 +94,19 @@ describe('TunnelManager', () => {
     expect(handle.publicOrigin).toBe('https://mcp.example.com');
     expect(captured?.args).not.toContain('secret-value');
     expect(captured?.env?.TUNNEL_TOKEN).toBe('secret-value');
+    expect(captured?.args).toEqual(['tunnel', '--protocol', 'http2', '--no-autoupdate', 'run']);
+    await manager.stop();
+  });
+
+  it('uses HTTP/2 for Quick Tunnels to avoid blocked QUIC networks', async () => {
+    let capturedArgs: string[] | undefined;
+    const manager = new TunnelManager(config(), new MemorySecretStore(), (_command, args) => {
+      capturedArgs = args;
+      return fakeProcess(['INF https://example.trycloudflare.com']);
+    });
+    const handle = await manager.start('http://127.0.0.1:48271');
+    expect(handle.publicOrigin).toBe('https://example.trycloudflare.com');
+    expect(capturedArgs).toEqual(['tunnel', '--protocol', 'http2', '--no-autoupdate', '--url', 'http://127.0.0.1:48271']);
     await manager.stop();
   });
 

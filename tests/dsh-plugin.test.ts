@@ -250,7 +250,7 @@ describe('dsh plugin entry point', () => {
     expect(fixture.tools).toHaveLength(5);
   });
 
-  it('keeps explicit overlay lifecycle settings when a saved config exists', () => {
+  it('keeps operator-selected tunnel settings across restarts', () => {
     const configured = Config({
       persistentMode: true,
       tunnel: { provider: 'none' },
@@ -267,9 +267,9 @@ describe('dsh plugin entry point', () => {
 
     const resolved = resolvePluginBridgeConfig(configured, saved);
 
-    expect(resolved.tunnel.provider).toBe('none');
+    expect(resolved.tunnel.provider).toBe('cloudflare-named');
     expect(resolved.persistentMode).toBe(true);
-    expect(resolved.tunnel.cloudflareNamedDomain).toBeUndefined();
+    expect(resolved.tunnel.cloudflareNamedDomain).toBe('mcp.example.com');
   });
 
   it('keeps overlay security and capability grants authoritative over stale saved config', () => {

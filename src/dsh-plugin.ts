@@ -323,9 +323,9 @@ export function resolvePluginBridgeConfig(
     return config;
   }
 
-  // The DSH overlay is authoritative for lifecycle-critical choices. Older
-  // local config files and their stale endpoint fields must not resurrect a
-  // tunnel after the profile is set to local-only mode.
+  // The DSH overlay is authoritative for security-sensitive lifecycle
+  // defaults. Tunnel selection is operator state changed in the Bridge UI, so
+  // a deliberately saved choice survives restarts instead of being reset.
   // Security and capability grants are overlay-authoritative too: a stale
   // workspace-local file must never silently narrow the configured contract
   // (or widen it after the profile has deliberately reduced access).
@@ -335,7 +335,7 @@ export function resolvePluginBridgeConfig(
     allowedOrigins: [...configured.allowedOrigins],
     capabilities: { ...configured.capabilities },
     commandRuntime: configured.commandRuntime,
-    tunnel: configured.tunnel,
+    tunnel: savedConfig.tunnel,
     persistentMode: configured.persistentMode,
   };
 }
