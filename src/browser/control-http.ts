@@ -70,6 +70,10 @@ function parseConfigUpdate(value: unknown): BridgeConfigUpdate {
     throw new Error('update must be an object');
   }
   const record = value as Record<string, unknown>;
+  const allowSecretPathOnly = optionalBoolean(
+    record.allowSecretPathOnly,
+    'update.allowSecretPathOnly',
+  );
   let allowedOrigins: string[] | undefined;
   if (record.allowedOrigins !== undefined) {
     if (!Array.isArray(record.allowedOrigins)) {
@@ -119,6 +123,7 @@ function parseConfigUpdate(value: unknown): BridgeConfigUpdate {
   );
   if (ngrokUseHttpProxy !== undefined) result.ngrokUseHttpProxy = ngrokUseHttpProxy;
   return {
+    ...(allowSecretPathOnly === undefined ? {} : { allowSecretPathOnly }),
     ...(allowedOrigins === undefined ? {} : { allowedOrigins }),
     tunnel: result,
   };

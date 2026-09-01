@@ -393,6 +393,7 @@ function ConnectionSettings({
   const [namedToken, setNamedToken] = useState('');
   const [ngrokDomain, setNgrokDomain] = useState('');
   const [ngrokUseHttpProxy, setNgrokUseHttpProxy] = useState(false);
+  const [allowSecretPathOnly, setAllowSecretPathOnly] = useState(false);
   const [newOrigin, setNewOrigin] = useState('');
   const configurationKey = configuration
     ? [
@@ -401,6 +402,7 @@ function ConnectionSettings({
       configuration.tunnel.cloudflareNamedTokenConfigured,
       configuration.tunnel.ngrokDomain,
       configuration.tunnel.ngrokUseHttpProxy,
+      configuration.allowSecretPathOnly,
     ].join('\0')
     : '';
   const appliedConfigurationKey = useRef('');
@@ -415,6 +417,7 @@ function ConnectionSettings({
     setNamedToken('');
     setNgrokDomain(configuration.tunnel.ngrokDomain);
     setNgrokUseHttpProxy(configuration.tunnel.ngrokUseHttpProxy);
+    setAllowSecretPathOnly(configuration.allowSecretPathOnly);
   }, [configuration, configurationKey]);
 
   const saveNamedTunnel = (event: FormEvent<HTMLFormElement>) => {
@@ -441,6 +444,11 @@ function ConnectionSettings({
   const chooseQuickTunnel = () => {
     setProvider('cloudflare');
     onUpdate({ tunnel: { provider: 'cloudflare' } });
+  };
+
+  const saveSecretPathOnly = (checked: boolean) => {
+    setAllowSecretPathOnly(checked);
+    onUpdate({ allowSecretPathOnly: checked });
   };
 
   const chooseNamedTunnel = () => {
@@ -632,6 +640,15 @@ function ConnectionSettings({
       <details className="dbb-advanced-settings">
         <summary>高级连接</summary>
         <form className="dbb-tunnel-form" onSubmit={saveNgrok}>
+          <label className="dbb-checkbox-label">
+            <input
+              type="checkbox"
+              checked={allowSecretPathOnly}
+              disabled={!editable || updating}
+              onChange={event => { saveSecretPathOnly(event.currentTarget.checked); }}
+            />
+            <span>允许无 Header 连接（仅凭秘密 URL）</span>
+          </label>
           <label className="dbb-form-label">
             <span>ngrok 保留域名</span>
             <input
@@ -658,7 +675,7 @@ function ConnectionSettings({
               type="submit"
               disabled={!editable || updating || !ngrokDomain.trim()}
             >
-              保存 ngrok 设置
+              保存高级设置
             </button>
           </div>
         </form>

@@ -154,6 +154,7 @@ export class RequestSecurity {
   constructor(
     allowedOrigins: string[],
     private readonly bearerToken?: string,
+    private readonly allowSecretPathOnly = false,
   ) {
     this.allowedOrigins = new Set(
       allowedOrigins
@@ -228,6 +229,9 @@ export class RequestSecurity {
 
     if (this.bearerToken && !options.skipBearer) {
       const authorization = headerValue(request.headers.authorization);
+      if (this.allowSecretPathOnly && authorization === undefined) {
+        return undefined;
+      }
       const actual = authorization?.startsWith('Bearer ')
         ? authorization.slice('Bearer '.length)
         : '';

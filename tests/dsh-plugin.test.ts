@@ -74,6 +74,7 @@ function fakeRuntime(
     })),
     getConfigSnapshot: vi.fn(async (): Promise<BridgeConfigSnapshot> => ({
       editable: true,
+      allowSecretPathOnly: false,
       allowedOrigins: [],
       tunnel: {
         provider: status.tunnelProvider,
@@ -88,6 +89,7 @@ function fakeRuntime(
       _update: BridgeConfigUpdate,
     ): Promise<BridgeConfigSnapshot> => ({
       editable: true,
+      allowSecretPathOnly: false,
       allowedOrigins: [],
       tunnel: {
         provider: status.tunnelProvider,
@@ -304,6 +306,7 @@ describe('dsh plugin entry point', () => {
     const resolved = resolvePluginBridgeConfig(configured, saved);
 
     expect(resolved.requireBearerToken).toBe(true);
+    expect(resolved.allowSecretPathOnly).toBe(false);
     expect(resolved.allowedOrigins).toEqual(['https://workbuddy.cn']);
     expect(resolved.capabilities).toEqual({
       read: true,

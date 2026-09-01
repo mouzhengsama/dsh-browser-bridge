@@ -53,11 +53,13 @@ export interface BridgeTunnelConfigSnapshot {
 
 export interface BridgeConfigSnapshot {
   editable: boolean;
+  allowSecretPathOnly: boolean;
   tunnel: BridgeTunnelConfigSnapshot;
   allowedOrigins: string[];
 }
 
 export interface BridgeConfigUpdate {
+  allowSecretPathOnly?: boolean | undefined;
   allowedOrigins?: string[] | undefined;
   tunnel?: {
     provider?: TunnelProviderId | undefined;
@@ -74,6 +76,7 @@ export interface BridgeConfig {
   port: number;
   localConnectorPort: number;
   requireBearerToken: boolean;
+  allowSecretPathOnly: boolean;
   allowedOrigins: string[];
   capabilities: CapabilityConfig;
   limits: BridgeLimits;

@@ -91,6 +91,7 @@ export class BridgeRuntime {
     const token = await this.secrets.get(tokenKey);
     return {
       editable: this.statusValue.state === 'stopped' || this.statusValue.state === 'failed',
+      allowSecretPathOnly: this.config.allowSecretPathOnly,
       tunnel: {
         provider: this.config.tunnel.provider,
         cloudflareNamedDomain: this.config.tunnel.cloudflareNamedDomain ?? '',
@@ -108,6 +109,8 @@ export class BridgeRuntime {
       throw new Error('Stop Bridge before changing its tunnel settings');
     }
     const current = this.config.tunnel;
+    const currentAllowSecretPathOnly = this.config.allowSecretPathOnly;
+    let proposedAllowSecretPathOnly = currentAllowSecretPathOnly;
     const proposed: BridgeConfig['tunnel'] = { ...current };
     const tunnelUpdate = update.tunnel;
     const currentOrigins = this.config.allowedOrigins;
@@ -138,6 +141,9 @@ export class BridgeRuntime {
     if (update.allowedOrigins !== undefined) {
       proposedOrigins = normalizeAllowedOrigins(update.allowedOrigins);
     }
+    if (update.allowSecretPathOnly !== undefined) {
+      proposedAllowSecretPathOnly = update.allowSecretPathOnly;
+    }
 
     const tokenKey = proposed.cloudflareNamedTokenKey ?? 'cloudflare-tunnel-token';
     const tokenProvided = Object.prototype.hasOwnProperty.call(
@@ -155,12 +161,14 @@ export class BridgeRuntime {
         }
       }
       this.config.tunnel = proposed;
+      this.config.allowSecretPathOnly = proposedAllowSecretPathOnly;
       this.config.allowedOrigins = proposedOrigins;
       await this.onConfigChanged?.(this.config);
       this.updateStatus({ tunnelProvider: proposed.provider, error: undefined });
       return this.getConfigSnapshot();
     } catch (error) {
       this.config.tunnel = current;
+      this.config.allowSecretPathOnly = currentAllowSecretPathOnly;
       this.config.allowedOrigins = currentOrigins;
       if (tokenProvided) {
         if (previousToken) {
@@ -178,7 +186,9 @@ export class BridgeRuntime {
       state: this.statusValue.state,
       tunnelProvider: this.statusValue.tunnelProvider,
       instructions: this.statusValue.state === 'running'
-        ? 'Use the MCP URL with a Streamable HTTP MCP connector. Keep the URL and bearer token private.'
+        ? this.config.allowSecretPathOnly
+          ? 'Use the MCP URL with a Streamable HTTP MCP connector. Keep the secret URL private.'
+          : 'Use the MCP URL with a Streamable HTTP MCP connector. Keep the URL and bearer token private.'
         : 'Start the Bridge first. Connection details are withheld until the Bridge is running.',
     };
     if (this.statusValue.state !== 'running') {
@@ -254,6 +264,7 @@ export class BridgeRuntime {
         adapter,
         secretPath: pathSecret,
         bearerToken,
+        allowSecretPathOnly: this.config.allowSecretPathOnly,
         localConnectorPort: this.config.localConnectorPort,
         ...(this.httpCarrier ? { carrier: this.httpCarrier } : {}),
         ...(this.onAccessLog ? { onAccessLog: this.onAccessLog } : {}),

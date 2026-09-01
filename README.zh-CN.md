@@ -54,6 +54,7 @@ dsh --profile demo
   name: '@dsh/browser-bridge'
   config:
     requireBearerToken: true
+    allowSecretPathOnly: false
     allowedOrigins:
       - https://workbuddy.cn
       - https://www.workbuddy.cn
@@ -78,6 +79,7 @@ dsh --profile demo
 | 配置 | 说明 |
 | --- | --- |
 | `requireBearerToken` | 强制 MCP 请求带 Bearer Token。除非只做短时间本地调试，否则保持开启。 |
+| `allowSecretPathOnly` | 允许完全没带 Authorization 的请求通过秘密 MCP 路径；带了错误 Token 仍会拒绝。给不支持自定义 Header 的连接器使用，默认关闭。 |
 | `allowedOrigins` | 允许跨域访问 MCP 的精确网页 origin。不要使用 `*`。 |
 | `capabilities` | 远程工具能力。`write` 和 `command` 风险最高。 |
 | `tunnel.provider` | `none` 只允许本机访问；`cloudflare`、`cloudflare-named`、`ngrok` 提供公网入口。 |
@@ -182,9 +184,10 @@ Bridge 只负责启动 ngrok 子进程，不会把 Authtoken 放进命令行。
 
 1. 确认网页端填的是完整 `mcpUrl`，不是只有 origin。
 2. 确认 Header 是 `Authorization: Bearer <token>`。
-3. Local-only 模式下，云端 Connector 访问不到 `127.0.0.1`。需要公网时切换隧道模式。
-4. 检查该站是否真的支持自定义 MCP Header 和 Streamable HTTP。
-5. 用本地 MCP 客户端完成一次 `initialize` 和 `tools/list`，先确认 Bridge 正常。
+3. 如果网站不能自定义 Header，可在 Bridge 停止时勾选“允许无 Header 连接”，再把 MCP URL 重新填入；这个 URL 本身就是唯一凭证。
+4. Local-only 模式下，云端 Connector 访问不到 `127.0.0.1`。需要公网时切换隧道模式。
+5. 检查该站是否真的支持自定义 MCP Header 和 Streamable HTTP。
+6. 用本地 MCP 客户端完成一次 `initialize` 和 `tools/list`，先确认 Bridge 正常。
 
 ### Cloudflare 连不上
 

@@ -56,6 +56,7 @@ const configSchema = z.object({
   port: z.number().int().min(1024).max(65_535).default(48_271),
   localConnectorPort: z.number().int().min(0).max(65_535).default(0),
   requireBearerToken: z.boolean().default(false),
+  allowSecretPathOnly: z.boolean().default(false),
   allowedOrigins: z.array(z.string()).default([...BUILT_IN_ORIGINS]),
   capabilities: capabilitySchema.default({
     read: true,

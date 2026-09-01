@@ -185,6 +185,7 @@ function createRuntime(): {
       })),
       getConfigSnapshot: vi.fn(async (): Promise<BridgeConfigSnapshot> => ({
         editable: status.state === 'stopped' || status.state === 'failed',
+        allowSecretPathOnly: false,
         allowedOrigins: [],
         tunnel: {
           provider: status.tunnelProvider,
@@ -197,6 +198,7 @@ function createRuntime(): {
       })),
       updateConfig: vi.fn(async (): Promise<BridgeConfigSnapshot> => ({
         editable: status.state === 'stopped' || status.state === 'failed',
+        allowSecretPathOnly: false,
         allowedOrigins: [],
         tunnel: {
           provider: status.tunnelProvider,

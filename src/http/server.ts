@@ -53,6 +53,7 @@ export interface BridgeHttpServerOptions {
   adapter: WorkspaceAdapter;
   secretPath: string;
   bearerToken?: string | undefined;
+  allowSecretPathOnly?: boolean | undefined;
   carrier?: BridgeHttpCarrier | undefined;
   localConnectorPort?: number | undefined;
   onAccessLog?: ((event: BridgeHttpAccessEvent) => void) | undefined;
@@ -72,7 +73,11 @@ export class BridgeHttpServer {
   constructor(private readonly options: BridgeHttpServerOptions) {
     this.mcpPath = `/mcp/${encodeURIComponent(options.secretPath)}`;
     this.healthPath = `${this.mcpPath}/health`;
-    this.security = new RequestSecurity(options.config.allowedOrigins, options.bearerToken);
+    this.security = new RequestSecurity(
+      options.config.allowedOrigins,
+      options.bearerToken,
+      options.allowSecretPathOnly ?? false,
+    );
     this.security.onAccessLog = options.onAccessLog;
     this.limiter = new RequestLimiter(
       options.config.limits.requestsPerMinute,

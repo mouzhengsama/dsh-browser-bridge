@@ -153,6 +153,38 @@ describe('BridgeHttpServer', () => {
     expect(authorized.status).toBe(200);
   });
 
+  it('allows missing authorization only when secret-path mode is enabled', async () => {
+    const config = defaultConfig(process.cwd());
+    config.port = await freePort();
+    const adapter = await LocalWorkspaceAdapter.create(config);
+    adapters.push(adapter);
+    const server = new BridgeHttpServer({
+      config,
+      adapter,
+      secretPath: 'secret-path-auth',
+      bearerToken: 'secret-path-token',
+      allowSecretPathOnly: true,
+    });
+    servers.push(server);
+    await server.start();
+
+    const request = async (authorization?: string) => await fetch(
+      `${server.localOrigin}${server.mcpPath}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          ...(authorization ? { Authorization: authorization } : {}),
+        },
+        body: JSON.stringify(initializeRequest),
+      },
+    );
+
+    await expect(request()).resolves.toMatchObject({ status: 200 });
+    await expect(request('Bearer wrong-token')).resolves.toMatchObject({ status: 401 });
+  });
+
   it('records sanitized access metadata without credentials or URLs', async () => {
     const config = defaultConfig(process.cwd());
     config.port = await freePort();

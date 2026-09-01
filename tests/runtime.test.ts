@@ -227,6 +227,13 @@ describe('BridgeRuntime', () => {
     expect(JSON.stringify(config)).not.toContain('named-token');
     expect(save).toHaveBeenCalledWith(config);
 
+    await expect(runtime.updateConfig({ allowSecretPathOnly: true })).resolves.toMatchObject({
+      editable: true,
+      allowSecretPathOnly: true,
+    });
+    expect(config.allowSecretPathOnly).toBe(true);
+    expect(save).toHaveBeenCalledWith(config);
+
     const localSnapshot = await runtime.updateConfig({
       allowedOrigins: ['https://custom.example'],
       tunnel: { provider: 'none' },

@@ -35,6 +35,7 @@ export const inject = ['tools', 'webServer', 'fs'] as const;
 
 export interface DshBridgePluginConfig {
   requireBearerToken: boolean;
+  allowSecretPathOnly: boolean;
   allowedOrigins: string[];
   localConnectorPort: number;
   capabilities: CapabilityConfig;
@@ -102,6 +103,7 @@ const commandRuntimeConfig = Schema.union([
 
 export const Config = Schema.object({
   requireBearerToken: Schema.boolean().default(true),
+  allowSecretPathOnly: Schema.boolean().default(false),
   allowedOrigins: Schema.array(Schema.string()).default([...BUILT_IN_ORIGINS]),
   ...connectorConfig,
   capabilities: Schema.object(capabilitiesConfig).default({
@@ -332,6 +334,7 @@ export function resolvePluginBridgeConfig(
   return {
     ...config,
     requireBearerToken: configured.requireBearerToken,
+    allowSecretPathOnly: configured.allowSecretPathOnly,
     allowedOrigins: [...configured.allowedOrigins],
     capabilities: { ...configured.capabilities },
     commandRuntime: configured.commandRuntime,
