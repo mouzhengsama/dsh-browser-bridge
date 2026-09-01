@@ -1,5 +1,6 @@
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer } from 'node:net';
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { defaultConfig } from '../src/config.js';
@@ -516,6 +517,90 @@ describe('BridgeHttpServer', () => {
     expect(unauthorized.headers.get('www-authenticate')).toBe(
       `Bearer, resource_metadata="${metadataUrl}"`,
     );
+  });
+
+  it.each([
+    { name: 'standalone HTTP server', carrier: false },
+    { name: 'DSH HTTP carrier', carrier: true },
+  ])('supports dynamic OAuth registration, PKCE, and MCP access through the $name', async ({ carrier: useCarrier }) => {
+    const carrier = useCarrier ? new TestCarrier() : undefined;
+    if (carrier) {
+      await carrier.start();
+      carriers.push(carrier);
+    }
+    const config = defaultConfig(process.cwd());
+    config.port = carrier?.port ?? await freePort();
+    const adapter = await LocalWorkspaceAdapter.create(config);
+    adapters.push(adapter);
+    const server = new BridgeHttpServer({
+      config,
+      adapter,
+      secretPath: useCarrier ? 'carrier-oauth-flow' : 'standalone-oauth-flow',
+      bearerToken: 'oauth-flow-token',
+      ...(carrier ? { carrier } : {}),
+    });
+    servers.push(server);
+    await server.start();
+
+    const origin = useCarrier ? carrierOrigin(carrier!) : new URL(server.mcpUrl).origin;
+    const endpoint = (path: string) => `${origin}${path}`;
+    const discovery = await fetch(endpoint(server.oauthAuthorizationServerPath));
+    expect(discovery.status).toBe(200);
+    const discoveryPayload = await discovery.json() as Record<string, string>;
+    expect(discoveryPayload.issuer).toBe(origin);
+    expect(discoveryPayload.authorization_endpoint).toBe(endpoint(server.oauthAuthorizePath));
+    expect(discoveryPayload.token_endpoint).toBe(endpoint(server.oauthTokenPath));
+    expect(discoveryPayload.registration_endpoint).toBe(endpoint(server.oauthRegisterPath));
+
+    const redirectUri = 'https://client.example/callback';
+    const registration = await fetch(endpoint(server.oauthRegisterPath), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        redirect_uris: [redirectUri],
+        client_name: 'OAuth flow test client',
+      }),
+    });
+    expect(registration.status).toBe(200);
+    const clientId = (await registration.json() as { client_id: string }).client_id;
+    expect(clientId).toMatch(/^[0-9a-f]{32}$/);
+
+    const verifier = 'test-code-verifier-with-sufficient-entropy-1234567890';
+    const challenge = createHash('sha256').update(verifier).digest('base64url');
+    const authorizeUrl = new URL(endpoint(server.oauthAuthorizePath));
+    authorizeUrl.search = new URLSearchParams({
+      response_type: 'code',
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      state: 'oauth-state',
+    }).toString();
+    const authorization = await fetch(authorizeUrl, { redirect: 'manual' });
+    expect(authorization.status).toBe(302);
+    const callback = new URL(authorization.headers.get('location')!);
+    expect(callback.origin).toBe(new URL(redirectUri).origin);
+    expect(callback.searchParams.get('state')).toBe('oauth-state');
+    const code = callback.searchParams.get('code');
+    expect(code).toBeTruthy();
+
+    const token = await fetch(endpoint(server.oauthTokenPath), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: code!,
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        code_verifier: verifier,
+      }),
+    });
+    expect(token.status).toBe(200);
+    await expect(token.json()).resolves.toMatchObject({
+      access_token: 'oauth-flow-token',
+      token_type: 'Bearer',
+      scope: 'mcp',
+    });
   });
 });
 
