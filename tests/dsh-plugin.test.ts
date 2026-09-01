@@ -320,6 +320,22 @@ describe('dsh plugin entry point', () => {
     expect(resolved.commandRuntime).toBe('auto');
   });
 
+  it('preserves a saved secret-path connection switch across overlay defaults', () => {
+    const configured = Config({
+      requireBearerToken: true,
+      allowSecretPathOnly: false,
+      tunnel: { provider: 'none' },
+    }) as BridgeConfig;
+    const saved: BridgeConfig = {
+      ...configured,
+      allowSecretPathOnly: true,
+    };
+
+    const resolved = resolvePluginBridgeConfig(configured, saved);
+
+    expect(resolved.allowSecretPathOnly).toBe(true);
+  });
+
   it('creates and registers the desktop browser control service', async () => {
     const fixture = fakeContext(path.resolve('C:/dsh-workspace'));
     const runtime = fakeRuntime(Config({}) as BridgeConfig);

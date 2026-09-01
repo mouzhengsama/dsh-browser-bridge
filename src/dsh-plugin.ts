@@ -381,10 +381,12 @@ export function resolvePluginBridgeConfig(
   // Security and capability grants are overlay-authoritative too: a stale
   // workspace-local file must never silently narrow the configured contract
   // (or widen it after the profile has deliberately reduced access).
+  // The secret-path switch is a runtime connector-compatibility choice, so
+  // preserve the operator's saved value unless this overlay explicitly opts in.
   return {
     ...config,
     requireBearerToken: configured.requireBearerToken,
-    allowSecretPathOnly: configured.allowSecretPathOnly,
+    allowSecretPathOnly: configured.allowSecretPathOnly || savedConfig.allowSecretPathOnly,
     allowedOrigins: [...configured.allowedOrigins],
     capabilities: { ...configured.capabilities },
     commandRuntime: configured.commandRuntime,
