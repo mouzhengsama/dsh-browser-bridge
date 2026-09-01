@@ -401,6 +401,9 @@ export async function apply(
       httpCarrier: pluginContext.webServer,
       onAccessLog: recordAccessDiagnostic,
       onConfigChanged: nextConfig => saveConfig(configPath, nextConfig),
+      onStartupDiagnostic: details => {
+        void recordStartupDiagnostic('runtime', details);
+      },
     });
     const activeRuntime = runtime;
     const browser = dependencies.createBrowserHost?.(config.port)

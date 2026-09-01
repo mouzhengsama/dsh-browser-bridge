@@ -326,6 +326,12 @@ function tunnelSummary(configuration: BridgeConfigSnapshot | undefined): string 
   return '仅在本机暴露 MCP，不创建公网隧道';
 }
 
+function connectorAvailabilityLabel(status: BridgeStatus | undefined): string {
+  if (status?.publicOrigin) return '公网隧道可用';
+  if (status?.tunnelProvider === 'none') return '仅本机可用';
+  return status?.state === 'running' ? '正在获取连接入口' : '未启动';
+}
+
 function StatusBadge({ status }: { status: BridgeStatus | undefined }) {
   const state = status?.state ?? 'stopped';
   return (
@@ -932,7 +938,7 @@ function Dashboard({
                   粘贴到网页 AI 的自定义 MCP / Connector 设置；不要发到公开对话。
                 </p>
               </div>
-              <span className="dbb-mode-badge">仅本机可用</span>
+              <span className="dbb-mode-badge">{connectorAvailabilityLabel(status)}</span>
             </div>
             {connectionError && (
               <p className="dbb-field-error">{connectionError}</p>

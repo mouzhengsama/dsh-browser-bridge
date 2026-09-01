@@ -28,6 +28,7 @@ export interface BridgeRuntimeOptions {
   httpCarrier?: BridgeHttpCarrier | undefined;
   onAccessLog?: ((event: import('./http/server.js').BridgeHttpAccessEvent) => void) | undefined;
   onConfigChanged?: ((config: BridgeConfig) => Promise<void>) | undefined;
+  onStartupDiagnostic?: ((details: Record<string, unknown>) => void) | undefined;
 }
 
 export class BridgeRuntime {
@@ -37,6 +38,7 @@ export class BridgeRuntime {
   private readonly httpCarrier: BridgeHttpCarrier | undefined;
   private readonly onAccessLog: ((event: import('./http/server.js').BridgeHttpAccessEvent) => void) | undefined;
   private readonly onConfigChanged: ((config: BridgeConfig) => Promise<void>) | undefined;
+  private readonly onStartupDiagnostic: ((details: Record<string, unknown>) => void) | undefined;
   private readonly listeners = new Set<(event: BridgeEvent) => void>();
   private http: BridgeHttpServer | undefined;
   private tunnel: TunnelManager | undefined;
@@ -51,6 +53,7 @@ export class BridgeRuntime {
     this.httpCarrier = options.httpCarrier;
     this.onAccessLog = options.onAccessLog;
     this.onConfigChanged = options.onConfigChanged;
+    this.onStartupDiagnostic = options.onStartupDiagnostic;
     this.adapterPromise = options.adapter
       ? Promise.resolve(options.adapter)
       : LocalWorkspaceAdapter.create(options.config);
@@ -316,6 +319,12 @@ export class BridgeRuntime {
         error: undefined,
       });
       console.info('[dsh-browser-bridge] startup completed');
+      this.onStartupDiagnostic?.({
+        stage: 'runtime-started',
+        tunnelProvider: this.statusValue.tunnelProvider,
+        localOrigin: this.statusValue.localOrigin,
+        publicOrigin: this.statusValue.publicOrigin,
+      });
       return this.statusValue;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

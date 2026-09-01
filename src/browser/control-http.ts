@@ -273,6 +273,12 @@ export class BridgeControlHttpService {
         void recordJsonlDiagnostic('browser-bridge-control.jsonl', {
           stage: 'control-snapshot-result',
           workspaceId,
+          bridge: {
+            state: snapshot.bridge.state,
+            tunnelProvider: snapshot.bridge.tunnelProvider,
+            publicOrigin: snapshot.bridge.publicOrigin,
+            localOrigin: snapshot.bridge.localOrigin,
+          },
           browser: {
             available: snapshot.browser.available,
             reason: snapshot.browser.reason,
