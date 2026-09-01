@@ -463,6 +463,60 @@ describe('BridgeHttpServer', () => {
       result: expect.any(Object),
     });
   });
+
+  it.each([
+    { name: 'standalone HTTP server', carrier: false },
+    { name: 'DSH HTTP carrier', carrier: true },
+  ])('serves protected-resource OAuth discovery through the $name', async ({ carrier: useCarrier }) => {
+    const carrier = useCarrier ? new TestCarrier() : undefined;
+    if (carrier) {
+      await carrier.start();
+      carriers.push(carrier);
+    }
+
+    const config = defaultConfig(process.cwd());
+    config.port = carrier?.port ?? await freePort();
+    const adapter = await LocalWorkspaceAdapter.create(config);
+    adapters.push(adapter);
+    const server = new BridgeHttpServer({
+      config,
+      adapter,
+      secretPath: useCarrier ? 'carrier-oauth-secret' : 'standalone-oauth-secret',
+      bearerToken: 'oauth-discovery-token',
+      ...(carrier ? { carrier } : {}),
+    });
+    servers.push(server);
+    await server.start();
+
+    const origin = useCarrier ? carrierOrigin(carrier!) : new URL(server.mcpUrl).origin;
+    const metadataUrl = `${origin}${server.oauthResourceMetadataPath}`;
+    const metadata = await fetch(metadataUrl, {
+      headers: { Authorization: 'Bearer oauth-discovery-token' },
+    });
+    expect(metadata.status).toBe(200);
+    expect(metadata.headers.get('content-type')).toContain('application/json');
+    expect(await metadata.json()).toEqual({
+      resource: `${origin}${server.mcpPath}`,
+      authorization_servers: [origin],
+      scopes_supported: ['mcp'],
+      bearer_methods_supported: ['header'],
+      resource_documentation: `${origin}${server.mcpPath}`,
+    });
+
+    const invalidCredential = await fetch(metadataUrl, {
+      headers: { Authorization: 'Bearer wrong-token' },
+    });
+    expect(invalidCredential.status).toBe(401);
+
+    const outsideCapability = await fetch(`${origin}/.well-known/oauth-protected-resource`);
+    expect(outsideCapability.status).toBe(404);
+
+    const unauthorized = await fetch(`${origin}${server.healthPath}`);
+    expect(unauthorized.status).toBe(401);
+    expect(unauthorized.headers.get('www-authenticate')).toBe(
+      `Bearer, resource_metadata="${metadataUrl}"`,
+    );
+  });
 });
 
 function carrierOrigin(carrier: TestCarrier): string {

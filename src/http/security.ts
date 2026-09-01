@@ -147,6 +147,7 @@ export function parseRequestBodyLimit(value: string): number {
 
 export class RequestSecurity {
   onAccessLog?: ((event: BridgeHttpAccessEvent) => void) | undefined;
+  private oauthResourceMetadata: string | undefined;
 
   private readonly allowedHosts = new Set<string>(['localhost', '127.0.0.1', '[::1]', '::1']);
   private readonly allowedOrigins: Set<string>;
@@ -172,6 +173,22 @@ export class RequestSecurity {
     if (normalizedOrigin) {
       this.allowedOrigins.add(normalizedOrigin);
     }
+  }
+
+  setOAuthResourceMetadata(url: string | undefined): void {
+    if (url !== undefined) {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error('OAuth resource metadata URL must use HTTP or HTTPS');
+      }
+    }
+    this.oauthResourceMetadata = url;
+  }
+
+  bearerChallenge(): string {
+    return this.oauthResourceMetadata
+      ? `Bearer, resource_metadata="${this.oauthResourceMetadata}"`
+      : 'Bearer';
   }
 
   getAllowedCorsOrigin(request: BridgeRequestLike): string | undefined {
@@ -277,7 +294,7 @@ export class RequestSecurity {
       const failure = this.authorize(req, { skipBearer: isPreflight });
       if (failure) {
         if (failure.authenticate) {
-          res.setHeader('WWW-Authenticate', 'Bearer');
+          res.setHeader('WWW-Authenticate', this.bearerChallenge());
         }
         res.status(failure.status).json({ error: failure.message });
         return;
@@ -374,10 +391,13 @@ export function writeJsonError(
   res: ServerResponse,
   status: number,
   message: string,
-  authenticate = false,
+  authenticate: boolean | string = false,
 ): void {
   if (authenticate) {
-    res.setHeader('WWW-Authenticate', 'Bearer');
+    res.setHeader(
+      'WWW-Authenticate',
+      typeof authenticate === 'string' ? authenticate : 'Bearer',
+    );
   }
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify({ error: message }));

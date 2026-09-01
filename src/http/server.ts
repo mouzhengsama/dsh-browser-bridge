@@ -62,6 +62,7 @@ export interface BridgeHttpServerOptions {
 export class BridgeHttpServer {
   readonly mcpPath: string;
   readonly healthPath: string;
+  readonly oauthResourceMetadataPath: string;
   readonly security: RequestSecurity;
   private readonly sessions = new Map<string, McpSession>();
   private readonly limiter: RequestLimiter;
@@ -73,6 +74,7 @@ export class BridgeHttpServer {
   constructor(private readonly options: BridgeHttpServerOptions) {
     this.mcpPath = `/mcp/${encodeURIComponent(options.secretPath)}`;
     this.healthPath = `${this.mcpPath}/health`;
+    this.oauthResourceMetadataPath = `${this.mcpPath}/.well-known/oauth-protected-resource`;
     this.security = new RequestSecurity(
       options.config.allowedOrigins,
       options.bearerToken,
@@ -103,6 +105,28 @@ export class BridgeHttpServer {
     return `${this.localOrigin}${this.mcpPath}`;
   }
 
+  oauthResourceMetadataUrl(requestOrigin: string): string {
+    const origin = new URL(requestOrigin).origin;
+    return `${origin}${this.oauthResourceMetadataPath}`;
+  }
+
+  private oauthResourceMetadataPayload(request: IncomingMessage): Record<string, unknown> {
+    return {
+      resource: `${nodeBaseUrl(request)}${this.mcpPath}`,
+      authorization_servers: [nodeBaseUrl(request)],
+      scopes_supported: ['mcp'],
+      bearer_methods_supported: ['header'],
+      resource_documentation: `${nodeBaseUrl(request)}${this.mcpPath}`,
+    };
+  }
+
+  private setOAuthResourceMetadataFromRequest(req: IncomingMessage): void {
+    const metadataUrl = this.oauthResourceMetadataUrl(nodeBaseUrl(req));
+    if (this.security.bearerChallenge() !== `Bearer, resource_metadata="${metadataUrl}"`) {
+      this.security.setOAuthResourceMetadata(metadataUrl);
+    }
+  }
+
   async start(): Promise<void> {
     if (this.server || this.routeDisposer) {
       return;
@@ -126,7 +150,15 @@ export class BridgeHttpServer {
     const app = express();
     app.disable('x-powered-by');
     app.use(express.json({ limit: this.options.config.limits.requestBodyLimit }));
+    app.use(this.mcpPath, (req, _res, next) => {
+      this.setOAuthResourceMetadataFromRequest(req);
+      next();
+    });
     app.use(this.mcpPath, this.security.middleware());
+
+    app.get(this.oauthResourceMetadataPath, (req, res) => {
+      res.json(this.oauthResourceMetadataPayload(req));
+    });
 
     app.get(this.healthPath, (_req, res) => {
       res.json({
@@ -262,13 +294,19 @@ export class BridgeHttpServer {
 
   async handleNodeRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const accessContext: { bodyMethod?: string } = {};
+    this.setOAuthResourceMetadataFromRequest(req);
     this.logNodeAccess(req, res, accessContext);
 
     this.security.applyCorsHeaders(req, res);
     const isPreflight = req.method?.toUpperCase() === 'OPTIONS';
     const failure = this.security.authorize(req, { skipBearer: isPreflight });
     if (failure) {
-      writeJsonError(res, failure.status, failure.message, failure.authenticate);
+      writeJsonError(
+        res,
+        failure.status,
+        failure.message,
+        failure.authenticate ? this.security.bearerChallenge() : false,
+      );
       return;
     }
     if (isPreflight) {
@@ -286,6 +324,11 @@ export class BridgeHttpServer {
     res.once('close', decision.release);
 
     const pathname = new URL(req.url ?? '/', 'http://bridge.local').pathname;
+    if (pathname === this.oauthResourceMetadataPath && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(this.oauthResourceMetadataPayload(req)));
+      return;
+    }
     if (pathname === this.healthPath && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({
@@ -440,6 +483,16 @@ export class BridgeHttpServer {
   }
 }
 
+function nodeBaseUrl(request: IncomingMessage): string {
+  const hostHeader = request.headers.host;
+  const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
+  try {
+    return new URL(request.url ?? '/', `http://${host ?? 'bridge.local'}`).origin;
+  } catch {
+    return 'http://bridge.local';
+  }
+}
+
 function writeJsonRpcErrorNode(
   res: ServerResponse,
   status: number,
@@ -453,3 +506,4 @@ function writeJsonRpcErrorNode(
     id: null,
   }));
 }
+
