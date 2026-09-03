@@ -79,12 +79,19 @@ const tunnelConfig = {
     'cloudflare',
     'cloudflare-named',
     'ngrok',
+    'localtunnel',
     'none',
   ]).default('none'),
   cloudflareNamedDomain: Schema.string(),
   cloudflareNamedTokenKey: Schema.string().default('cloudflare-tunnel-token'),
+  cloudflareEdgeBindAddress: Schema.string(),
+  cloudflareEdgeAuthority: Schema.string(),
+  cloudflaredHttpProxy: Schema.string(),
   ngrokDomain: Schema.string(),
   ngrokUseHttpProxy: Schema.boolean().default(false),
+  localtunnelHost: Schema.string(),
+  localtunnelHttpProxy: Schema.string(),
+  localtunnelSubdomain: Schema.string(),
   startupTimeoutMs: Schema.natural().min(1).default(20_000),
   publicHealthTimeoutMs: Schema.natural().min(1).default(20_000),
   cloudflaredPath: Schema.string().default('cloudflared'),
@@ -100,6 +107,15 @@ const commandRuntimeConfig = Schema.union([
   'dsh',
   'local',
 ]).default('auto');
+
+const oauthPairingOutputSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    code: { type: 'string', required: true },
+    expiresAt: { type: 'number', required: true },
+  },
+} as const;
 
 export const Config = Schema.object({
   requireBearerToken: Schema.boolean().default(true),
@@ -127,8 +143,14 @@ export const Config = Schema.object({
     provider: 'none',
     cloudflareNamedDomain: '',
     cloudflareNamedTokenKey: 'cloudflare-tunnel-token',
+    cloudflareEdgeBindAddress: '',
+    cloudflareEdgeAuthority: '',
+    cloudflaredHttpProxy: '',
     ngrokDomain: '',
     ngrokUseHttpProxy: false,
+    localtunnelHost: '',
+    localtunnelHttpProxy: '',
+    localtunnelSubdomain: '',
     startupTimeoutMs: 20_000,
     publicHealthTimeoutMs: 20_000,
     cloudflaredPath: 'cloudflared',
@@ -157,6 +179,8 @@ export interface BridgeRuntimeLike {
   updateConfig(
     update: import('./types.js').BridgeConfigUpdate,
   ): Promise<import('./types.js').BridgeConfigSnapshot>;
+  createOAuthPairingCode(): import('./types.js').OAuthPairingCode;
+  revokeAllOAuthGrants(): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -188,7 +212,7 @@ const statusOutputSchema = {
     healthUrl: { type: 'string' },
     tunnelProvider: {
       type: 'string',
-      enum: ['none', 'cloudflare', 'cloudflare-named', 'ngrok'] as const,
+      enum: ['none', 'cloudflare', 'cloudflare-named', 'ngrok', 'localtunnel'] as const,
       required: true,
     },
     startedAt: { type: 'string' },
@@ -207,7 +231,7 @@ const connectionOutputSchema = {
     },
     tunnelProvider: {
       type: 'string',
-      enum: ['none', 'cloudflare', 'cloudflare-named', 'ngrok'] as const,
+      enum: ['none', 'cloudflare', 'cloudflare-named', 'ngrok', 'localtunnel'] as const,
       required: true,
     },
     mcpUrl: { type: 'string' },
@@ -246,8 +270,14 @@ type ConfigToolOutput = {
   tunnelProvider: import('./types.js').TunnelProviderId;
   cloudflareNamedDomain: string;
   cloudflareNamedTokenConfigured: boolean;
+  cloudflareEdgeBindAddress: string;
+  cloudflareEdgeAuthority: string;
+  cloudflaredHttpProxy: string;
   ngrokDomain: string;
   ngrokUseHttpProxy: boolean;
+  localtunnelHost: string;
+  localtunnelHttpProxy: string;
+  localtunnelSubdomain: string;
   localServiceUrl: string;
   allowedOrigins: string[];
 };
@@ -259,8 +289,14 @@ function configToolOutput(snapshot: import('./types.js').BridgeConfigSnapshot): 
     tunnelProvider: snapshot.tunnel.provider,
     cloudflareNamedDomain: snapshot.tunnel.cloudflareNamedDomain,
     cloudflareNamedTokenConfigured: snapshot.tunnel.cloudflareNamedTokenConfigured,
+    cloudflareEdgeBindAddress: snapshot.tunnel.cloudflareEdgeBindAddress,
+    cloudflareEdgeAuthority: snapshot.tunnel.cloudflareEdgeAuthority,
+    cloudflaredHttpProxy: snapshot.tunnel.cloudflaredHttpProxy,
     ngrokDomain: snapshot.tunnel.ngrokDomain,
     ngrokUseHttpProxy: snapshot.tunnel.ngrokUseHttpProxy,
+    localtunnelHost: snapshot.tunnel.localtunnelHost,
+    localtunnelHttpProxy: snapshot.tunnel.localtunnelHttpProxy,
+    localtunnelSubdomain: snapshot.tunnel.localtunnelSubdomain,
     localServiceUrl: snapshot.tunnel.localServiceUrl,
     allowedOrigins: [...snapshot.allowedOrigins],
   };
@@ -310,13 +346,19 @@ const configOutputSchema = {
     allowSecretPathOnly: { type: 'boolean', required: true },
     tunnelProvider: {
       type: 'string',
-      enum: ['none', 'cloudflare', 'cloudflare-named', 'ngrok'] as const,
+      enum: ['none', 'cloudflare', 'cloudflare-named', 'ngrok', 'localtunnel'] as const,
       required: true,
     },
     cloudflareNamedDomain: { type: 'string', required: true },
     cloudflareNamedTokenConfigured: { type: 'boolean', required: true },
+    cloudflareEdgeBindAddress: { type: 'string', required: true },
+    cloudflareEdgeAuthority: { type: 'string', required: true },
+    cloudflaredHttpProxy: { type: 'string', required: true },
     ngrokDomain: { type: 'string', required: true },
     ngrokUseHttpProxy: { type: 'boolean', required: true },
+    localtunnelHost: { type: 'string', required: true },
+    localtunnelHttpProxy: { type: 'string', required: true },
+    localtunnelSubdomain: { type: 'string', required: true },
     localServiceUrl: { type: 'string', required: true },
     allowedOrigins: {
       type: 'array',
@@ -383,6 +425,16 @@ export function resolvePluginBridgeConfig(
   // (or widen it after the profile has deliberately reduced access).
   // The secret-path switch is a runtime connector-compatibility choice, so
   // preserve the operator's saved value unless this overlay explicitly opts in.
+  const configuredTunnel = configured.tunnel;
+  const savedTunnel = savedConfig.tunnel;
+  const overrideIfConfigured = <T>(
+    profileValue: T | undefined,
+    savedValue: T | undefined,
+    isEmpty: (value: T | undefined) => boolean = value => value === undefined,
+  ): T | undefined => (
+    !isEmpty(profileValue) ? profileValue : savedValue
+  );
+
   return {
     ...config,
     requireBearerToken: configured.requireBearerToken,
@@ -390,7 +442,54 @@ export function resolvePluginBridgeConfig(
     allowedOrigins: [...configured.allowedOrigins],
     capabilities: { ...configured.capabilities },
     commandRuntime: configured.commandRuntime,
-    tunnel: savedConfig.tunnel,
+    tunnel: {
+      ...savedTunnel,
+      provider: configuredTunnel.provider !== 'none'
+        ? configuredTunnel.provider
+        : savedTunnel.provider,
+      cloudflareNamedDomain: overrideIfConfigured(
+        configuredTunnel.cloudflareNamedDomain,
+        savedTunnel.cloudflareNamedDomain,
+        value => value === undefined || value === '',
+      ),
+      cloudflareEdgeBindAddress: overrideIfConfigured(
+        configuredTunnel.cloudflareEdgeBindAddress,
+        savedTunnel.cloudflareEdgeBindAddress,
+        value => value === undefined || value === '',
+      ),
+      cloudflareEdgeAuthority: overrideIfConfigured(
+        configuredTunnel.cloudflareEdgeAuthority,
+        savedTunnel.cloudflareEdgeAuthority,
+        value => value === undefined || value === '',
+      ),
+      cloudflaredHttpProxy: overrideIfConfigured(
+        configuredTunnel.cloudflaredHttpProxy,
+        savedTunnel.cloudflaredHttpProxy,
+        value => value === undefined || value === '',
+      ),
+      localtunnelHost: overrideIfConfigured(
+        configuredTunnel.localtunnelHost,
+        savedTunnel.localtunnelHost,
+        value => value === undefined || value === '',
+      ),
+      localtunnelHttpProxy: overrideIfConfigured(
+        configuredTunnel.localtunnelHttpProxy,
+        savedTunnel.localtunnelHttpProxy,
+        value => value === undefined || value === '',
+      ),
+      localtunnelSubdomain: overrideIfConfigured(
+        configuredTunnel.localtunnelSubdomain,
+        savedTunnel.localtunnelSubdomain,
+        value => value === undefined || value === '',
+      ),
+      startupTimeoutMs: configuredTunnel.startupTimeoutMs !== 20_000
+        ? configuredTunnel.startupTimeoutMs
+        : savedTunnel.startupTimeoutMs,
+      publicHealthTimeoutMs: configuredTunnel.publicHealthTimeoutMs !== 20_000
+        ? configuredTunnel.publicHealthTimeoutMs
+        : savedTunnel.publicHealthTimeoutMs,
+    },
+    localConnectorPort: configured.localConnectorPort,
     persistentMode: configured.persistentMode,
   };
 }
@@ -613,8 +712,14 @@ function registerControlTools(
       },
       cloudflareNamedDomain: { type: 'string' },
       cloudflareNamedToken: { type: 'string' },
+      cloudflareEdgeBindAddress: { type: 'string' },
+      cloudflareEdgeAuthority: { type: 'string' },
+      cloudflaredHttpProxy: { type: 'string' },
       ngrokDomain: { type: 'string' },
       ngrokUseHttpProxy: { type: 'boolean' },
+      localtunnelHost: { type: 'string' },
+      localtunnelHttpProxy: { type: 'string' },
+      localtunnelSubdomain: { type: 'string' },
       allowedOrigins: { type: 'array', items: { type: 'string' } },
     },
     output: {
@@ -629,10 +734,43 @@ function registerControlTools(
           ...(args.provider === undefined ? {} : { provider: args.provider }),
           ...(args.cloudflareNamedDomain === undefined ? {} : { cloudflareNamedDomain: args.cloudflareNamedDomain }),
           ...(args.cloudflareNamedToken === undefined ? {} : { cloudflareNamedToken: args.cloudflareNamedToken }),
+          ...(args.cloudflareEdgeBindAddress === undefined ? {} : { cloudflareEdgeBindAddress: args.cloudflareEdgeBindAddress }),
+          ...(args.cloudflareEdgeAuthority === undefined ? {} : { cloudflareEdgeAuthority: args.cloudflareEdgeAuthority }),
+          ...(args.cloudflaredHttpProxy === undefined ? {} : { cloudflaredHttpProxy: args.cloudflaredHttpProxy }),
           ...(args.ngrokDomain === undefined ? {} : { ngrokDomain: args.ngrokDomain }),
           ...(args.ngrokUseHttpProxy === undefined ? {} : { ngrokUseHttpProxy: args.ngrokUseHttpProxy }),
+          ...(args.localtunnelHost === undefined ? {} : { localtunnelHost: args.localtunnelHost }),
+          ...(args.localtunnelHttpProxy === undefined ? {} : { localtunnelHttpProxy: args.localtunnelHttpProxy }),
+          ...(args.localtunnelSubdomain === undefined ? {} : { localtunnelSubdomain: args.localtunnelSubdomain }),
         },
       }));
+    },
+  }));
+
+  tools.register(defineTool({
+    name: 'bridge_oauth_pair',
+    description: 'Create a short-lived pairing code for approving an OAuth MCP connector.',
+    parameters: {},
+    output: {
+      schema: oauthPairingOutputSchema,
+      render: renderJson,
+    },
+    async execute() {
+      return runtime.createOAuthPairingCode();
+    },
+  }));
+
+  tools.register(defineTool({
+    name: 'bridge_oauth_revoke',
+    description: 'Revoke all OAuth clients, authorization codes, pairing codes, and refresh tokens.',
+    parameters: {},
+    output: {
+      schema: statusOutputSchema,
+      render: renderJson,
+    },
+    async execute() {
+      await runtime.revokeAllOAuthGrants();
+      return statusToolOutput(runtime.status);
     },
   }));
 }

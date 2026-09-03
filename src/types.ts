@@ -1,4 +1,9 @@
-export type TunnelProviderId = 'none' | 'cloudflare' | 'cloudflare-named' | 'ngrok';
+export type TunnelProviderId =
+  | 'none'
+  | 'cloudflare'
+  | 'cloudflare-named'
+  | 'ngrok'
+  | 'localtunnel';
 
 export interface CapabilityConfig {
   read: boolean;
@@ -34,8 +39,14 @@ export interface TunnelConfig {
   provider: TunnelProviderId;
   cloudflareNamedDomain?: string | undefined;
   cloudflareNamedTokenKey?: string | undefined;
+  cloudflareEdgeBindAddress?: string | undefined;
+  cloudflareEdgeAuthority?: string | undefined;
+  cloudflaredHttpProxy?: string | undefined;
   ngrokDomain?: string | undefined;
   ngrokUseHttpProxy: boolean;
+  localtunnelHost?: string | undefined;
+  localtunnelHttpProxy?: string | undefined;
+  localtunnelSubdomain?: string | undefined;
   startupTimeoutMs: number;
   publicHealthTimeoutMs: number;
   cloudflaredPath: string;
@@ -46,8 +57,14 @@ export interface BridgeTunnelConfigSnapshot {
   provider: TunnelProviderId;
   cloudflareNamedDomain: string;
   cloudflareNamedTokenConfigured: boolean;
+  cloudflareEdgeBindAddress: string;
+  cloudflareEdgeAuthority: string;
+  cloudflaredHttpProxy: string;
   ngrokDomain: string;
   ngrokUseHttpProxy: boolean;
+  localtunnelHost: string;
+  localtunnelHttpProxy: string;
+  localtunnelSubdomain: string;
   localServiceUrl: string;
 }
 
@@ -65,9 +82,20 @@ export interface BridgeConfigUpdate {
     provider?: TunnelProviderId | undefined;
     cloudflareNamedDomain?: string | undefined;
     cloudflareNamedToken?: string | undefined;
+    cloudflareEdgeBindAddress?: string | undefined;
+    cloudflareEdgeAuthority?: string | undefined;
+    cloudflaredHttpProxy?: string | undefined;
     ngrokDomain?: string | undefined;
     ngrokUseHttpProxy?: boolean | undefined;
+    localtunnelHost?: string | undefined;
+    localtunnelHttpProxy?: string | undefined;
+    localtunnelSubdomain?: string | undefined;
   };
+}
+
+export interface OAuthPairingCode {
+  code: string;
+  expiresAt: number;
 }
 
 export interface BridgeConfig {

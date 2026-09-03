@@ -61,10 +61,85 @@ describe('Bridge configuration persistence', () => {
     config.tunnel.ngrokDomain = '';
     await saveConfig(configPath, config);
 
+    const loaded = await loadExistingConfig(configPath);
+    expect(loaded).toBeDefined();
+    if (!loaded) return;
+    expect(loaded.tunnel.cloudflareNamedDomain).toBeUndefined();
+    expect(loaded.tunnel.ngrokDomain).toBeUndefined();
+    expect(loaded.tunnel.localtunnelHost).toBeUndefined();
+    expect(loaded.tunnel.localtunnelSubdomain).toBeUndefined();
+  });
+
+  it('accepts a valid Cloudflare Edge bind address and rejects invalid values', async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), 'dsh-browser-bridge-'));
+    directories.push(workspace);
+    const configPath = resolveDefaultConfigPath(workspace);
+    const config = defaultConfig(workspace);
+    config.tunnel.cloudflareEdgeBindAddress = '192.168.10.161';
+    await saveConfig(configPath, config);
+
+    await expect(loadExistingConfig(configPath)).resolves.toMatchObject({
+      tunnel: { cloudflareEdgeBindAddress: '192.168.10.161' },
+    });
+
+    config.tunnel.cloudflareEdgeBindAddress = 'not-an-ip';
+    await saveConfig(configPath, config);
+    await expect(loadExistingConfig(configPath)).rejects.toThrow(
+      /Cloudflare Edge bind address must be an IPv4 address/,
+    );
+
+    config.tunnel.cloudflareEdgeBindAddress = '';
+    await saveConfig(configPath, config);
+    await expect(loadExistingConfig(configPath)).resolves.toMatchObject({
+      tunnel: { cloudflareEdgeBindAddress: undefined },
+    });
+  });
+
+  it('accepts a valid Cloudflare Edge authority and rejects invalid values', async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), 'dsh-browser-bridge-'));
+    directories.push(workspace);
+    const configPath = resolveDefaultConfigPath(workspace);
+    const config = defaultConfig(workspace);
+    config.tunnel.cloudflaredHttpProxy = 'http://127.0.0.1:7897';
+    config.tunnel.cloudflareEdgeAuthority = 'region1.v2.argotunnel.com:7844';
+    await saveConfig(configPath, config);
+
+    await expect(loadExistingConfig(configPath)).resolves.toMatchObject({
+      tunnel: { cloudflareEdgeAuthority: 'region1.v2.argotunnel.com:7844' },
+    });
+
+    config.tunnel.cloudflareEdgeAuthority = 'https://region1.v2.argotunnel.com:7844/';
+    await saveConfig(configPath, config);
+    await expect(loadExistingConfig(configPath)).rejects.toThrow(
+      /Cloudflare Edge authority must be host:port/,
+    );
+
+    config.tunnel.cloudflaredHttpProxy = '';
+    config.tunnel.cloudflareEdgeAuthority = '';
+    await saveConfig(configPath, config);
+    await expect(loadExistingConfig(configPath)).resolves.toMatchObject({
+      tunnel: { cloudflareEdgeAuthority: undefined },
+    });
+  });
+
+  it('requires the Cloudflare HTTP proxy and Edge authority to be configured together', async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), 'dsh-browser-bridge-'));
+    directories.push(workspace);
+    const configPath = resolveDefaultConfigPath(workspace);
+    const config = defaultConfig(workspace);
+    config.tunnel.cloudflaredHttpProxy = 'http://127.0.0.1:7897';
+    await saveConfig(configPath, config);
+
+    await expect(loadExistingConfig(configPath)).rejects.toThrow(
+      /Cloudflare HTTP proxy and Cloudflare Edge authority must be configured together/,
+    );
+
+    config.tunnel.cloudflareEdgeAuthority = 'region1.v2.argotunnel.com:7844';
+    await saveConfig(configPath, config);
     await expect(loadExistingConfig(configPath)).resolves.toMatchObject({
       tunnel: {
-        cloudflareNamedDomain: undefined,
-        ngrokDomain: undefined,
+        cloudflaredHttpProxy: 'http://127.0.0.1:7897',
+        cloudflareEdgeAuthority: 'region1.v2.argotunnel.com:7844',
       },
     });
   });

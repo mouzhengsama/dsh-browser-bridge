@@ -25,6 +25,8 @@ export interface BridgeControlRuntime {
   getConnectionInfo(): Promise<BridgeConnectionInfo>;
   getConfigSnapshot(): Promise<BridgeConfigSnapshot>;
   updateConfig(update: BridgeConfigUpdate): Promise<BridgeConfigSnapshot>;
+  createOAuthPairingCode(): import('../types.js').OAuthPairingCode;
+  revokeAllOAuthGrants(): Promise<void>;
 }
 
 function writeJson(
@@ -96,6 +98,7 @@ function parseConfigUpdate(value: unknown): BridgeConfigUpdate {
     && provider !== 'cloudflare'
     && provider !== 'cloudflare-named'
     && provider !== 'ngrok'
+    && provider !== 'localtunnel'
   ) {
     throw new Error('update.tunnel.provider is invalid');
   }
@@ -144,6 +147,12 @@ function parseAction(value: unknown): BridgeControlAction {
     || action === 'bridge.config.get'
     || action === 'browser.hide'
   ) {
+    return { action, workspaceId };
+  }
+  if (action === 'bridge.oauth.pair') {
+    return { action, workspaceId };
+  }
+  if (action === 'bridge.oauth.revoke') {
     return { action, workspaceId };
   }
   if (action === 'bridge.config.update') {
@@ -355,6 +364,13 @@ export class BridgeControlHttpService {
     }
     if (action.action === 'bridge.config.update') {
       return this.runtime.updateConfig(action.update);
+    }
+    if (action.action === 'bridge.oauth.pair') {
+      return this.runtime.createOAuthPairingCode();
+    }
+    if (action.action === 'bridge.oauth.revoke') {
+      await this.runtime.revokeAllOAuthGrants();
+      return this.runtime.status;
     }
     if (action.action === 'browser.open') {
       return this.browser.open(action.workspaceId, action.paneId, action.url);

@@ -5,12 +5,14 @@ import type { BridgeHttpCarrier } from '../src/http/server.js';
 import { BUILT_IN_ORIGINS } from '../src/links.js';
 import { BridgeRuntime } from '../src/runtime.js';
 import { MemorySecretStore } from '../src/security/secrets.js';
+import { parseProxyTarget } from '../src/tunnel/manager.js';
 import type { WorkspaceAdapter } from '../src/types.js';
+import type { TunnelManager, TunnelHandle } from '../src/tunnel/manager.js';
 
 class RuntimeCarrier implements BridgeHttpCarrier {
   readonly host = '127.0.0.1' as const;
-  disposedRoutes = 0;
-  private route: Parameters<BridgeHttpCarrier['register']>[0] | undefined;
+ disposedRoutes = 0;
+  private routes: Array<Parameters<BridgeHttpCarrier['register']>[0]> = [];
   private readonly server = createServer((req, res) => this.handle(req, res));
 
   constructor(private readonly requireHostAccess = false) {}
@@ -26,14 +28,30 @@ class RuntimeCarrier implements BridgeHttpCarrier {
   }
 
   register(route: Parameters<BridgeHttpCarrier['register']>[0]): () => void {
-    if (this.route) throw new Error('Duplicate carrier route');
-    this.route = route;
+    const duplicate = this.routes.find((entry) => entry.kind === route.kind && entry.path === route.path);
+    if (duplicate) throw new Error(`Duplicate carrier route for ${route.kind} ${route.path}`);
+    this.routes.push(route);
+    let disposed = false;
     return () => {
-      if (this.route === route) {
-        this.route = undefined;
+      if (disposed) return;
+      disposed = true;
+      const index = this.routes.indexOf(route);
+      if (index >= 0) {
+        this.routes.splice(index, 1);
         this.disposedRoutes += 1;
       }
     };
+  }
+
+  private match(pathname: string): Parameters<BridgeHttpCarrier['register']>[0] | undefined {
+    for (const route of this.routes) {
+      if (route.kind === 'path') {
+        if (pathname === route.path) return route;
+      } else if (pathname === route.path || pathname.startsWith(`${route.path}/`)) {
+        return route;
+      }
+    }
+    return undefined;
   }
 
   async close(): Promise<void> {
@@ -47,8 +65,8 @@ class RuntimeCarrier implements BridgeHttpCarrier {
 
   private handle(req: IncomingMessage, res: ServerResponse): void {
     const pathname = new URL(req.url ?? '/', 'http://carrier.local').pathname;
-    const route = this.route;
-    if (route && (pathname === route.path || pathname.startsWith(`${route.path}/`))) {
+    const route = this.match(pathname);
+    if (route) {
       if (
         this.requireHostAccess
         && pathname === `${route.path}/health`
@@ -74,12 +92,71 @@ afterEach(async () => {
   await Promise.all(carriers.splice(0).map((carrier) => carrier.close()));
 });
 
+describe('parseProxyTarget', () => {
+  it('parses an HTTP proxy URL with host and port', () => {
+    const result = parseProxyTarget('http://127.0.0.1:7897');
+    expect(result).toEqual({
+      host: '127.0.0.1',
+      port: 7897,
+      protocol: 'http:',
+      authorization: undefined,
+    });
+  });
+
+  it('parses an HTTPS proxy URL with host and port', () => {
+    const result = parseProxyTarget('https://127.0.0.1:7897');
+    expect(result).toEqual({
+      host: '127.0.0.1',
+      port: 7897,
+      protocol: 'https:',
+      authorization: undefined,
+    });
+  });
+
+  it('parses an HTTP proxy URL with Basic auth', () => {
+    const result = parseProxyTarget('http://user:pass@127.0.0.1:7897');
+    expect(result).toMatchObject({
+      host: '127.0.0.1',
+      port: 7897,
+      protocol: 'http:',
+    });
+    expect(result?.authorization).toMatch(/^Basic /);
+  });
+
+  it('returns undefined for unsupported protocols', () => {
+    expect(parseProxyTarget('socks5://127.0.0.1:1080')).toBeUndefined();
+    expect(parseProxyTarget('ftp://127.0.0.1:21')).toBeUndefined();
+  });
+
+  it('returns undefined for malformed URLs', () => {
+    expect(parseProxyTarget('not-a-url')).toBeUndefined();
+    expect(parseProxyTarget('')).toBeUndefined();
+  });
+});
+
 function fakeAdapter(dispose = vi.fn(async () => undefined)): WorkspaceAdapter {
   return {
     workspaceRoot: process.cwd(),
     dispose,
   } as unknown as WorkspaceAdapter;
 }
+
+function patchRuntimeTunnel(runtime: BridgeRuntime, tunnel: Partial<TunnelHandle>): void {
+  const tunnelManagerStub = {
+    start: async (): Promise<TunnelHandle> => ({
+      provider: 'cloudflare-named',
+      publicOrigin: 'https://public-health.test',
+      ...(tunnel.waitForExit ? { waitForExit: tunnel.waitForExit } : {}),
+      close: async () => undefined,
+    }),
+    stop: async () => undefined,
+  };
+  Object.defineProperty(runtime, 'tunnel', {
+    configurable: true,
+    get: () => tunnelManagerStub,
+    set: () => undefined,
+  });
+ }
 
 describe('BridgeRuntime', () => {
   it('treats a registered carrier route as locally ready without probing through host auth', async () => {
@@ -145,6 +222,7 @@ describe('BridgeRuntime', () => {
       mcpUrl: running.mcpUrl,
       bearerToken: token,
     });
+    expect(await runtime.getConnectionInfo()).not.toHaveProperty('localPairingToken');
     expect((await fetch(running.healthUrl!, {
       headers: { Authorization: `Bearer ${token}` },
     })).status).toBe(200);
@@ -185,9 +263,49 @@ describe('BridgeRuntime', () => {
     });
     runtimes.push(runtime);
 
-    await expect(runtime.start()).rejects.toThrow(/Cloudflare Quick Tunnel/i);
-    expect(runtime.status.state).toBe('failed');
-    expect(carrier.disposedRoutes).toBe(1);
+   await expect(runtime.start()).rejects.toThrow(/Cloudflare Quick Tunnel/i);
+   expect(runtime.status.state).toBe('failed');
+   expect(carrier.disposedRoutes).toBe(11);
+  });
+
+  it('marks the runtime failed when a verified tunnel exits unexpectedly', async () => {
+    const carrier = new RuntimeCarrier();
+    await carrier.start();
+    carriers.push(carrier);
+    const config = defaultConfig(process.cwd());
+    config.host = carrier.host;
+    config.port = carrier.port;
+    config.tunnel.provider = 'cloudflare-named';
+    config.tunnel.cloudflareNamedDomain = 'public-health.test';
+    config.tunnel.publicHealthTimeoutMs = 1_000;
+    const runtime = new BridgeRuntime({
+      config,
+      secrets: new MemorySecretStore(),
+      adapter: fakeAdapter(),
+      httpCarrier: carrier,
+      tunnelFactory: () => ({
+        start: async (): Promise<TunnelHandle> => ({
+          provider: 'cloudflare-named',
+          publicOrigin: 'https://public-health.test',
+          waitForExit: () => Promise.resolve({ code: 19, signal: null }),
+          close: async () => undefined,
+        }),
+        stop: async () => undefined,
+      }) as unknown as TunnelManager,
+    });
+    runtimes.push(runtime);
+
+    await expect(runtime.start()).resolves.toMatchObject({
+      state: 'running',
+      publicOrigin: 'https://public-health.test',
+    });
+    await vi.waitFor(() => {
+      expect(runtime.status.state).toBe('failed');
+      expect(runtime.status.error).toContain('Tunnel exited unexpectedly');
+    });
+    await vi.waitFor(() => {
+      expect(carrier.disposedRoutes).toBeGreaterThan(0);
+    });
   });
 
   it('persists editable tunnel settings without placing a named tunnel token in config', async () => {
@@ -250,5 +368,134 @@ describe('BridgeRuntime', () => {
     await expect(runtime.updateConfig({
       tunnel: { provider: 'cloudflare' },
     })).rejects.toThrow(/Stop Bridge before changing/i);
+  });
+
+  it('validates and clears the cloudflared HTTP proxy setting', async () => {
+    const carrier = new RuntimeCarrier();
+    await carrier.start();
+    carriers.push(carrier);
+    const config = defaultConfig(process.cwd());
+    config.host = carrier.host;
+    config.port = carrier.port;
+    config.tunnel.provider = 'none';
+    const runtime = new BridgeRuntime({
+      config,
+      secrets: new MemorySecretStore(),
+      adapter: fakeAdapter(),
+      httpCarrier: carrier,
+    });
+    runtimes.push(runtime);
+
+    await expect(runtime.updateConfig({
+      tunnel: { cloudflaredHttpProxy: 'not-a-url' },
+    })).rejects.toThrow('cloudflared HTTP proxy must be a valid URL');
+
+    await expect(runtime.updateConfig({
+      tunnel: { cloudflaredHttpProxy: 'http://127.0.0.1:7897' },
+    })).rejects.toThrow(
+      'Cloudflare HTTP proxy and Cloudflare Edge authority must be configured together',
+    );
+
+    await expect(runtime.updateConfig({
+      tunnel: {
+        cloudflaredHttpProxy: 'http://127.0.0.1:7897',
+        cloudflareEdgeAuthority: 'region1.v2.argotunnel.com:7844',
+      },
+    })).resolves.toMatchObject({
+      tunnel: {
+        cloudflaredHttpProxy: 'http://127.0.0.1:7897',
+        cloudflareEdgeAuthority: 'region1.v2.argotunnel.com:7844',
+      },
+    });
+
+    await expect(runtime.updateConfig({
+      tunnel: { cloudflaredHttpProxy: '' },
+    })).rejects.toThrow(
+      'Cloudflare HTTP proxy and Cloudflare Edge authority must be configured together',
+    );
+
+    await expect(runtime.updateConfig({
+      tunnel: { cloudflaredHttpProxy: '', cloudflareEdgeAuthority: '' },
+    })).resolves.toMatchObject({
+      tunnel: { cloudflaredHttpProxy: '' },
+    });
+    expect(config.tunnel.cloudflaredHttpProxy).toBeUndefined();
+  });
+
+  it('validates and clears the Cloudflare Edge authority setting', async () => {
+    const carrier = new RuntimeCarrier();
+    await carrier.start();
+    carriers.push(carrier);
+    const config = defaultConfig(process.cwd());
+    config.host = carrier.host;
+    config.port = carrier.port;
+    config.tunnel.provider = 'none';
+    const runtime = new BridgeRuntime({
+      config,
+      secrets: new MemorySecretStore(),
+      adapter: fakeAdapter(),
+      httpCarrier: carrier,
+    });
+    runtimes.push(runtime);
+
+    await expect(runtime.updateConfig({
+      tunnel: { cloudflareEdgeAuthority: 'not-host-port' },
+    })).rejects.toThrow('Cloudflare Edge authority must be host:port');
+
+    await expect(runtime.updateConfig({
+      tunnel: { cloudflareEdgeAuthority: 'region1.v2.argotunnel.com:7844' },
+    })).rejects.toThrow(
+      'Cloudflare HTTP proxy and Cloudflare Edge authority must be configured together',
+    );
+
+    await expect(runtime.updateConfig({
+      tunnel: {
+        cloudflaredHttpProxy: 'http://127.0.0.1:7897',
+        cloudflareEdgeAuthority: 'region1.v2.argotunnel.com:7844',
+      },
+    })).resolves.toMatchObject({
+      tunnel: { cloudflareEdgeAuthority: 'region1.v2.argotunnel.com:7844' },
+    });
+
+    await expect(runtime.updateConfig({
+      tunnel: { cloudflaredHttpProxy: '', cloudflareEdgeAuthority: '' },
+    })).resolves.toMatchObject({
+      tunnel: { cloudflareEdgeAuthority: '' },
+    });
+    expect(config.tunnel.cloudflareEdgeAuthority).toBeUndefined();
+  });
+
+  it('validates and clears the localtunnel HTTP proxy setting', async () => {
+    const carrier = new RuntimeCarrier();
+    await carrier.start();
+    carriers.push(carrier);
+    const config = defaultConfig(process.cwd());
+    config.host = carrier.host;
+    config.port = carrier.port;
+    config.tunnel.provider = 'none';
+    const runtime = new BridgeRuntime({
+      config,
+      secrets: new MemorySecretStore(),
+      adapter: fakeAdapter(),
+      httpCarrier: carrier,
+    });
+    runtimes.push(runtime);
+
+    await expect(runtime.updateConfig({
+      tunnel: { localtunnelHttpProxy: 'not-a-url' },
+    })).rejects.toThrow('localtunnel HTTP proxy must be a valid URL');
+
+    await expect(runtime.updateConfig({
+      tunnel: { localtunnelHttpProxy: 'http://127.0.0.1:7897' },
+    })).resolves.toMatchObject({
+      tunnel: { localtunnelHttpProxy: 'http://127.0.0.1:7897' },
+    });
+
+    await expect(runtime.updateConfig({
+      tunnel: { localtunnelHttpProxy: '' },
+    })).resolves.toMatchObject({
+      tunnel: { localtunnelHttpProxy: '' },
+    });
+    expect(config.tunnel.localtunnelHttpProxy).toBeUndefined();
   });
 });

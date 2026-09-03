@@ -49,6 +49,32 @@ export function normalizeOrigin(value: string): string | undefined {
   }
 }
 
+export type OAuthAccessTokenVerifier = (
+  token: string,
+  resourceUrl: string,
+) => boolean;
+
+export function requestBaseUrl(request: BridgeRequestLike): string {
+  const protoHeader = request.headers['x-forwarded-proto'] ?? request.headers['cf-forwarded-proto'];
+  const proto = Array.isArray(protoHeader) ? protoHeader[0] : protoHeader;
+  const scheme = proto === 'https' || proto === 'http'
+    ? `${proto}:`
+    : proto === 'https,http' || proto === 'http,https'
+      ? 'https:'
+      : 'http:';
+  const forwardedHostHeader = request.headers['x-forwarded-host'];
+  const forwardedHost = Array.isArray(forwardedHostHeader)
+    ? forwardedHostHeader[0]
+    : forwardedHostHeader;
+  const hostHeader = forwardedHost?.split(',')[0]?.trim() ?? request.headers.host;
+  const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
+  try {
+    return new URL('/', `${scheme}//${host ?? 'bridge.local'}`).origin;
+  } catch {
+    return `${scheme}//bridge.local`;
+  }
+}
+
 export interface BridgeRequestLike {
   method?: string | undefined;
   headers: Record<string, string | string[] | undefined>;
@@ -156,6 +182,7 @@ export class RequestSecurity {
     allowedOrigins: string[],
     private readonly bearerToken?: string,
     private readonly allowSecretPathOnly = false,
+    private readonly verifyOAuthAccessToken?: OAuthAccessTokenVerifier,
   ) {
     this.allowedOrigins = new Set(
       allowedOrigins
@@ -252,7 +279,11 @@ export class RequestSecurity {
       const actual = authorization?.startsWith('Bearer ')
         ? authorization.slice('Bearer '.length)
         : '';
-      if (!constantTimeEqual(actual, this.bearerToken)) {
+      const resourceUrl = requestBaseUrl(request);
+      if (
+        !(this.bearerToken && constantTimeEqual(actual, this.bearerToken))
+        && !(this.verifyOAuthAccessToken?.(actual, resourceUrl) ?? false)
+      ) {
         return {
           status: 401,
           message: 'Missing or invalid bearer token',

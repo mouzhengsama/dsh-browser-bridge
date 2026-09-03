@@ -5,7 +5,7 @@ import { BUILT_IN_ORIGINS } from './links.js';
 import { BridgeHttpServer, type BridgeHttpCarrier } from './http/server.js';
 import { normalizeOrigin } from './http/security.js';
 import { LocalWorkspaceAdapter } from './workspace/adapter.js';
-import { TunnelManager } from './tunnel/manager.js';
+import { TunnelManager, type TunnelHandle, type TunnelExit } from './tunnel/manager.js';
 import type {
   BridgeConfig,
   BridgeConfigSnapshot,
@@ -20,6 +20,8 @@ import type {
 
 const MCP_PATH_SECRET = 'mcp-path-secret';
 const BEARER_TOKEN = 'bearer-token';
+const OAUTH_SIGNING_KEY = 'oauth-signing-key';
+const LOCAL_PAIRING_TOKEN_SECRET = 'local-pairing-token';
 
 export interface BridgeRuntimeOptions {
   config: BridgeConfig;
@@ -29,6 +31,7 @@ export interface BridgeRuntimeOptions {
   onAccessLog?: ((event: import('./http/server.js').BridgeHttpAccessEvent) => void) | undefined;
   onConfigChanged?: ((config: BridgeConfig) => Promise<void>) | undefined;
   onStartupDiagnostic?: ((details: Record<string, unknown>) => void) | undefined;
+  tunnelFactory?: (config: BridgeConfig['tunnel'], secrets: SecretStore) => TunnelManager;
 }
 
 export class BridgeRuntime {
@@ -40,12 +43,14 @@ export class BridgeRuntime {
   private readonly onConfigChanged: ((config: BridgeConfig) => Promise<void>) | undefined;
   private readonly onStartupDiagnostic: ((details: Record<string, unknown>) => void) | undefined;
   private readonly listeners = new Set<(event: BridgeEvent) => void>();
+  private readonly tunnelFactory: ((config: BridgeConfig['tunnel'], secrets: SecretStore) => TunnelManager) | undefined;
   private http: BridgeHttpServer | undefined;
   private tunnel: TunnelManager | undefined;
   private adapterValue: WorkspaceAdapter | undefined;
   private statusValue: BridgeStatus;
   private startPromise: Promise<BridgeStatus> | undefined;
   private disposePromise: Promise<void> | undefined;
+  private tunnelMonitor: { cancel(): void } | undefined;
 
   constructor(options: BridgeRuntimeOptions) {
     this.config = options.config;
@@ -54,6 +59,7 @@ export class BridgeRuntime {
     this.onAccessLog = options.onAccessLog;
     this.onConfigChanged = options.onConfigChanged;
     this.onStartupDiagnostic = options.onStartupDiagnostic;
+    this.tunnelFactory = options.tunnelFactory;
     this.adapterPromise = options.adapter
       ? Promise.resolve(options.adapter)
       : LocalWorkspaceAdapter.create(options.config);
@@ -96,8 +102,14 @@ export class BridgeRuntime {
         provider: this.config.tunnel.provider,
         cloudflareNamedDomain: this.config.tunnel.cloudflareNamedDomain ?? '',
         cloudflareNamedTokenConfigured: Boolean(token),
+        cloudflareEdgeBindAddress: this.config.tunnel.cloudflareEdgeBindAddress ?? '',
+        cloudflareEdgeAuthority: this.config.tunnel.cloudflareEdgeAuthority ?? '',
+        cloudflaredHttpProxy: this.config.tunnel.cloudflaredHttpProxy ?? '',
         ngrokDomain: this.config.tunnel.ngrokDomain ?? '',
         ngrokUseHttpProxy: this.config.tunnel.ngrokUseHttpProxy,
+        localtunnelHost: this.config.tunnel.localtunnelHost ?? '',
+        localtunnelHttpProxy: this.config.tunnel.localtunnelHttpProxy ?? '',
+        localtunnelSubdomain: this.config.tunnel.localtunnelSubdomain ?? '',
         localServiceUrl: this.configuredLocalServiceUrl(),
       },
       allowedOrigins: this.effectiveAllowedOrigins(),
@@ -121,17 +133,51 @@ export class BridgeRuntime {
     if (tunnelUpdate?.cloudflareNamedDomain !== undefined) {
       proposed.cloudflareNamedDomain = tunnelUpdate.cloudflareNamedDomain;
     }
+    if (tunnelUpdate?.cloudflareEdgeBindAddress !== undefined) {
+      proposed.cloudflareEdgeBindAddress = tunnelUpdate.cloudflareEdgeBindAddress;
+    }
+    if (tunnelUpdate?.cloudflareEdgeAuthority !== undefined) {
+      proposed.cloudflareEdgeAuthority = tunnelUpdate.cloudflareEdgeAuthority;
+    }
+    if (tunnelUpdate?.cloudflaredHttpProxy !== undefined) {
+      proposed.cloudflaredHttpProxy = tunnelUpdate.cloudflaredHttpProxy;
+    }
     if (tunnelUpdate?.ngrokDomain !== undefined) {
       proposed.ngrokDomain = tunnelUpdate.ngrokDomain;
     }
     if (tunnelUpdate?.ngrokUseHttpProxy !== undefined) {
       proposed.ngrokUseHttpProxy = tunnelUpdate.ngrokUseHttpProxy;
     }
+    if (tunnelUpdate?.localtunnelHost !== undefined) {
+      proposed.localtunnelHost = tunnelUpdate.localtunnelHost;
+    }
+    if (tunnelUpdate?.localtunnelHttpProxy !== undefined) {
+      proposed.localtunnelHttpProxy = tunnelUpdate.localtunnelHttpProxy;
+    }
+    if (tunnelUpdate?.localtunnelSubdomain !== undefined) {
+      proposed.localtunnelSubdomain = tunnelUpdate.localtunnelSubdomain;
+    }
+    proposed.cloudflaredHttpProxy = this.normalizeHttpProxy(
+      proposed.cloudflaredHttpProxy,
+      'cloudflared HTTP proxy',
+    );
+    proposed.localtunnelHttpProxy = this.normalizeHttpProxy(
+      proposed.localtunnelHttpProxy,
+      'localtunnel HTTP proxy',
+    );
     proposed.cloudflareNamedDomain = this.normalizeDomain(
       proposed.cloudflareNamedDomain,
       'Cloudflare Named Tunnel domain',
     );
     proposed.ngrokDomain = this.normalizeDomain(proposed.ngrokDomain, 'ngrok domain');
+    proposed.cloudflareEdgeAuthority = this.normalizeEdgeAuthority(
+      proposed.cloudflareEdgeAuthority,
+    );
+    if (Boolean(proposed.cloudflaredHttpProxy) !== Boolean(proposed.cloudflareEdgeAuthority)) {
+      throw new Error(
+        'Cloudflare HTTP proxy and Cloudflare Edge authority must be configured together',
+      );
+    }
     if (proposed.provider === 'cloudflare-named' && !proposed.cloudflareNamedDomain) {
       throw new Error('Cloudflare Named Tunnel requires a public hostname');
     }
@@ -259,15 +305,20 @@ export class BridgeRuntime {
         : undefined;
       stage = 'registering MCP HTTP routes';
       console.info(`[dsh-browser-bridge] startup stage: ${stage}`);
+      const oauthSigningKey = await ensureSecret(this.secrets, OAUTH_SIGNING_KEY);
+      const localPairingToken = await ensureSecret(this.secrets, LOCAL_PAIRING_TOKEN_SECRET);
       const http = new BridgeHttpServer({
-        config: this.config,
-        adapter,
-        secretPath: pathSecret,
-        bearerToken,
-        allowSecretPathOnly: this.config.allowSecretPathOnly,
-        localConnectorPort: this.config.localConnectorPort,
-        ...(this.httpCarrier ? { carrier: this.httpCarrier } : {}),
-        ...(this.onAccessLog ? { onAccessLog: this.onAccessLog } : {}),
+       config: this.config,
+       adapter,
+       secretPath: pathSecret,
+       bearerToken,
+       allowSecretPathOnly: this.config.allowSecretPathOnly,
+       localConnectorPort: this.config.localConnectorPort,
+       localPairingToken,
+        oauthSigningKey,
+       oauthSecretStore: this.secrets,
+       ...(this.httpCarrier ? { carrier: this.httpCarrier } : {}),
+       ...(this.onAccessLog ? { onAccessLog: this.onAccessLog } : {}),
       });
       await http.start();
       this.http = http;
@@ -308,13 +359,16 @@ export class BridgeRuntime {
 
       stage = 'starting tunnel';
       console.info(`[dsh-browser-bridge] startup stage: ${stage}`);
-      const tunnel = new TunnelManager(this.config.tunnel, this.secrets);
-      this.tunnel = tunnel;
-      const publicTunnel = await tunnel.start(http.localOrigin);
-      http.allowPublicOrigin(publicTunnel.publicOrigin);
-      const publicHealth = `${publicTunnel.publicOrigin}${http.healthPath}`;
-      let publicHealthWarning: string | undefined;
-      if (!(this.httpCarrier && publicTunnel.provider === 'none')) {
+    const tunnel = this.tunnelFactory
+      ? this.tunnelFactory(this.config.tunnel, this.secrets)
+      : new TunnelManager(this.config.tunnel, this.secrets);
+    this.tunnel = tunnel;
+    const publicTunnel = await tunnel.start(http.localOrigin);
+    http.allowPublicOrigin(publicTunnel.publicOrigin);
+    const publicHealth = `${publicTunnel.publicOrigin}${http.healthPath}`;
+    let publicHealthWarning: string | undefined;
+    let publicHealthVerified = false;
+    if (!(this.httpCarrier && publicTunnel.provider === 'none')) {
         stage = 'checking public MCP health';
         console.info(`[dsh-browser-bridge] startup stage: ${stage}`);
         try {
@@ -323,6 +377,7 @@ export class BridgeRuntime {
             this.config.tunnel.publicHealthTimeoutMs,
             this.config.allowSecretPathOnly ? undefined : bearerToken,
           );
+          publicHealthVerified = true;
         } catch (error) {
           // A public URL means the tunnel process registered successfully. If
           // only the local self-check cannot traverse TUN/proxy DNS, keep the
@@ -344,6 +399,7 @@ export class BridgeRuntime {
         startedAt,
         ...(publicHealthWarning ? { error: publicHealthWarning } : { error: undefined }),
       });
+      this.startTunnelMonitor(publicTunnel, publicHealth, publicHealthVerified, bearerToken);
       console.info('[dsh-browser-bridge] startup completed');
       this.onStartupDiagnostic?.({
         stage: 'runtime-started',
@@ -418,11 +474,24 @@ export class BridgeRuntime {
     await this.secrets.delete(MCP_PATH_SECRET);
   }
 
+  createOAuthPairingCode(): import('./types.js').OAuthPairingCode {
+    if (!this.http) {
+      throw new Error('Bridge is not running');
+    }
+    return this.http.createOAuthPairingCode();
+  }
+
+  async revokeAllOAuthGrants(): Promise<void> {
+    await this.http?.revokeAllOAuthGrants();
+  }
+
   private getAdapterIfReady(): WorkspaceAdapter | undefined {
     return this.adapterValue;
   }
 
   private async stopInternal(): Promise<void> {
+    this.tunnelMonitor?.cancel();
+    this.tunnelMonitor = undefined;
     await this.tunnel?.stop();
     this.tunnel = undefined;
     await this.http?.stop();
@@ -452,9 +521,115 @@ export class BridgeRuntime {
     return parsed.host;
   }
 
+  private normalizeEdgeAuthority(value: string | undefined): string | undefined {
+    const trimmed = value?.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    if (!trimmed) return undefined;
+    const match = trimmed.match(/^([^\s:/]+):(\d+)$/);
+    if (!match || Number(match[2]) <= 0 || Number(match[2]) > 65_535) {
+      throw new Error('Cloudflare Edge authority must be host:port');
+    }
+    return trimmed;
+  }
+
+  private normalizeHttpProxy(value: string | undefined, label: string): string | undefined {
+    const trimmed = value?.trim();
+    if (!trimmed) return undefined;
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      throw new Error(`${label} must be a valid URL`);
+    }
+    if (
+      (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+      || !parsed.hostname
+      || parsed.pathname !== '/'
+      || parsed.search
+      || parsed.hash
+    ) {
+      throw new Error(`${label} must be a valid URL`);
+    }
+    return parsed.toString().replace(/\/$/, '');
+  }
+
   private updateStatus(status: Partial<BridgeStatus>): void {
     this.statusValue = { ...this.statusValue, ...status };
     this.emit({ type: 'status', status: this.statusValue, at: new Date().toISOString() });
+  }
+
+  private startTunnelMonitor(
+    tunnel: TunnelHandle,
+    healthUrl: string,
+    healthVerifiedAtStartup: boolean,
+    bearerToken: string | undefined,
+  ): void {
+    this.tunnelMonitor?.cancel();
+    if (!tunnel.waitForExit && !healthVerifiedAtStartup) return;
+
+    let cancelled = false;
+    let healthTimer: NodeJS.Timeout | undefined;
+    let healthCheckRunning = false;
+    const cancel = (): void => {
+      if (cancelled) return;
+      cancelled = true;
+      if (healthTimer) clearTimeout(healthTimer);
+    };
+    this.tunnelMonitor = { cancel };
+
+    const fail = async (message: string): Promise<void> => {
+      if (cancelled || this.statusValue.state !== 'running') return;
+      cancel();
+      console.error(`[dsh-browser-bridge] runtime became unhealthy: ${message}`);
+      this.onStartupDiagnostic?.({
+        stage: 'runtime-failed',
+        tunnelProvider: this.statusValue.tunnelProvider,
+        message,
+      });
+      this.updateStatus({ state: 'failed', error: message });
+      try {
+        await this.stopInternal();
+      } catch (error) {
+        console.error('[dsh-browser-bridge] failed to stop unhealthy runtime', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    };
+
+    if (tunnel.waitForExit) {
+      void tunnel.waitForExit().then(
+        (exit: TunnelExit) => {
+          if (cancelled) return;
+          const detail = exit.signal ?? exit.code ?? 'unknown status';
+          void fail(`Tunnel exited unexpectedly (${detail})`);
+        },
+        error => {
+          if (cancelled) return;
+          void fail(`Tunnel exited unexpectedly: ${error instanceof Error ? error.message : String(error)}`);
+        },
+      );
+    }
+
+    if (!healthVerifiedAtStartup) return;
+    const check = (): void => {
+      if (cancelled || this.statusValue.state !== 'running') return;
+      if (healthCheckRunning) {
+        schedule(5_000);
+        return;
+      }
+      healthCheckRunning = true;
+      void this.waitForHealth(healthUrl, 10_000, this.config.allowSecretPathOnly ? undefined : bearerToken)
+        .catch(error => {
+          void fail(error instanceof Error ? error.message : String(error));
+        })
+        .finally(() => {
+          healthCheckRunning = false;
+          if (!cancelled && this.statusValue.state === 'running') schedule(60_000);
+        });
+    };
+    const schedule = (delayMs: number): void => {
+      healthTimer = setTimeout(check, delayMs);
+    };
+    schedule(60_000);
   }
 
   private emit(event: BridgeEvent): void {

@@ -78,10 +78,16 @@ function fakeRuntime(
       allowedOrigins: [],
       tunnel: {
         provider: status.tunnelProvider,
+        cloudflareEdgeBindAddress: '',
+          cloudflareEdgeAuthority: '',
         cloudflareNamedDomain: '',
         cloudflareNamedTokenConfigured: false,
+        cloudflaredHttpProxy: '',
         ngrokDomain: '',
         ngrokUseHttpProxy: false,
+        localtunnelHost: '',
+        localtunnelHttpProxy: '',
+        localtunnelSubdomain: '',
         localServiceUrl: 'http://127.0.0.1:48271',
       },
     })),
@@ -93,13 +99,24 @@ function fakeRuntime(
       allowedOrigins: [],
       tunnel: {
         provider: status.tunnelProvider,
+        cloudflareEdgeBindAddress: '',
+          cloudflareEdgeAuthority: '',
         cloudflareNamedDomain: '',
         cloudflareNamedTokenConfigured: false,
+        cloudflaredHttpProxy: '',
         ngrokDomain: '',
         ngrokUseHttpProxy: false,
-        localServiceUrl: 'http://127.0.0.1:48271',
+        localtunnelHost: '',
+        localtunnelHttpProxy: '',
+        localtunnelSubdomain: '',
+      localServiceUrl: 'http://127.0.0.1:48271',
       },
     })),
+    createOAuthPairingCode: vi.fn(() => ({
+      code: 'TEST-PAIR-1',
+      expiresAt: Date.now() + 300_000,
+    })),
+    revokeAllOAuthGrants: vi.fn(async () => undefined),
     dispose: vi.fn(async () => undefined),
     ...overrides,
   };
@@ -205,7 +222,7 @@ describe('dsh plugin entry point', () => {
       adapter,
       httpCarrier: fixture.webServer,
     });
-    expect(fixture.register).toHaveBeenCalledTimes(7);
+    expect(fixture.register).toHaveBeenCalledTimes(9);
     expect(fixture.tools.map((tool) => tool.name)).toEqual([
       'bridge_status',
       'bridge_start',
@@ -214,6 +231,8 @@ describe('dsh plugin entry point', () => {
       'bridge_connection_info',
       'bridge_config_get',
       'bridge_config_update',
+      'bridge_oauth_pair',
+      'bridge_oauth_revoke',
     ]);
     expect(fixture.context.effect).toHaveBeenCalledTimes(1);
   });
@@ -251,13 +270,13 @@ describe('dsh plugin entry point', () => {
 
     expect(start).toHaveBeenCalledTimes(1);
     expect(fixture.context.effect).toHaveBeenCalledTimes(1);
-    expect(fixture.tools).toHaveLength(7);
+    expect(fixture.tools).toHaveLength(9);
   });
 
   it('keeps operator-selected tunnel settings across restarts', () => {
     const configured = Config({
       persistentMode: true,
-      tunnel: { provider: 'none' },
+      tunnel: {},
     }) as BridgeConfig;
     const saved: BridgeConfig = {
       ...configured,
@@ -274,6 +293,74 @@ describe('dsh plugin entry point', () => {
     expect(resolved.tunnel.provider).toBe('cloudflare-named');
     expect(resolved.persistentMode).toBe(true);
     expect(resolved.tunnel.cloudflareNamedDomain).toBe('mcp.example.com');
+  });
+
+  it('keeps an explicit profile edge bind address over a stale saved config', () => {
+    const configured = Config({
+      tunnel: {
+        provider: 'cloudflare',
+        cloudflareEdgeBindAddress: '192.168.10.161',
+      },
+    }) as BridgeConfig;
+    const saved: BridgeConfig = {
+      ...configured,
+      tunnel: {
+        ...configured.tunnel,
+        cloudflareEdgeBindAddress: undefined,
+      },
+    };
+
+    const resolved = resolvePluginBridgeConfig(configured, saved);
+
+    expect(resolved.tunnel.cloudflareEdgeBindAddress).toBe('192.168.10.161');
+  });
+
+  it('keeps an explicit profile tunnel selection over operator-saved state', () => {
+    const configured = Config({
+      tunnel: {
+        provider: 'cloudflare-named',
+        cloudflareNamedDomain: 'mcp.example.com',
+      },
+      localConnectorPort: 48271,
+    }) as BridgeConfig;
+    const saved: BridgeConfig = {
+      ...configured,
+      localConnectorPort: 0,
+      tunnel: {
+        ...configured.tunnel,
+        provider: 'cloudflare',
+        cloudflareNamedDomain: '',
+      },
+    };
+
+    const resolved = resolvePluginBridgeConfig(configured, saved);
+
+    expect(resolved.tunnel.provider).toBe('cloudflare-named');
+    expect(resolved.tunnel.cloudflareNamedDomain).toBe('mcp.example.com');
+    expect(resolved.localConnectorPort).toBe(48271);
+  });
+
+  it('keeps profile startup timeout limits over stale saved config', () => {
+    const configured = Config({
+      tunnel: {
+        provider: 'cloudflare',
+        startupTimeoutMs: 30_000,
+        publicHealthTimeoutMs: 60_000,
+      },
+    }) as BridgeConfig;
+    const saved: BridgeConfig = {
+      ...configured,
+      tunnel: {
+        ...configured.tunnel,
+        startupTimeoutMs: 20_000,
+        publicHealthTimeoutMs: 20_000,
+      },
+    };
+
+    const resolved = resolvePluginBridgeConfig(configured, saved);
+
+    expect(resolved.tunnel.startupTimeoutMs).toBe(30_000);
+    expect(resolved.tunnel.publicHealthTimeoutMs).toBe(60_000);
   });
 
   it('keeps overlay security and capability grants authoritative over stale saved config', () => {
@@ -398,10 +485,16 @@ describe('dsh plugin entry point', () => {
         allowedOrigins: [],
         tunnel: {
           provider: 'cloudflare',
+          cloudflareEdgeBindAddress: '',
+          cloudflareEdgeAuthority: '',
           cloudflareNamedDomain: '',
           cloudflareNamedTokenConfigured: false,
+          cloudflaredHttpProxy: '',
           ngrokDomain: '',
           ngrokUseHttpProxy: false,
+          localtunnelHost: '',
+          localtunnelHttpProxy: '',
+          localtunnelSubdomain: '',
           localServiceUrl: 'http://127.0.0.1:43131',
         },
       })),
@@ -411,10 +504,16 @@ describe('dsh plugin entry point', () => {
         allowedOrigins: [],
         tunnel: {
           provider: update.tunnel?.provider ?? 'none',
+          cloudflareEdgeBindAddress: '',
+          cloudflareEdgeAuthority: '',
           cloudflareNamedDomain: '',
           cloudflareNamedTokenConfigured: false,
+          cloudflaredHttpProxy: '',
           ngrokDomain: '',
           ngrokUseHttpProxy: false,
+          localtunnelHost: '',
+          localtunnelHttpProxy: '',
+          localtunnelSubdomain: '',
           localServiceUrl: 'http://127.0.0.1:43131',
         },
       })),

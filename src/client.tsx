@@ -55,6 +55,7 @@ import type {
   BridgeConfigUpdate,
   BridgeConnectionInfo,
   BridgeStatus,
+  OAuthPairingCode,
 } from './types.js';
 
 const CONTROL_PATH = '/browser-bridge/control';
@@ -391,6 +392,8 @@ function ConnectionSettings({
   const [provider, setProvider] = useState<BridgeStatus['tunnelProvider']>('cloudflare');
   const [namedDomain, setNamedDomain] = useState('');
   const [namedToken, setNamedToken] = useState('');
+  const [cloudflaredHttpProxy, setCloudflaredHttpProxy] = useState('');
+  const [cloudflareEdgeAuthority, setCloudflareEdgeAuthority] = useState('');
   const [ngrokDomain, setNgrokDomain] = useState('');
   const [ngrokUseHttpProxy, setNgrokUseHttpProxy] = useState(false);
   const [allowSecretPathOnly, setAllowSecretPathOnly] = useState(false);
@@ -400,6 +403,8 @@ function ConnectionSettings({
       configuration.tunnel.provider,
       configuration.tunnel.cloudflareNamedDomain,
       configuration.tunnel.cloudflareNamedTokenConfigured,
+      configuration.tunnel.cloudflaredHttpProxy,
+      configuration.tunnel.cloudflareEdgeAuthority,
       configuration.tunnel.ngrokDomain,
       configuration.tunnel.ngrokUseHttpProxy,
       configuration.allowSecretPathOnly,
@@ -415,6 +420,8 @@ function ConnectionSettings({
     setProvider(configuration.tunnel.provider);
     setNamedDomain(configuration.tunnel.cloudflareNamedDomain);
     setNamedToken('');
+    setCloudflaredHttpProxy(configuration.tunnel.cloudflaredHttpProxy);
+    setCloudflareEdgeAuthority(configuration.tunnel.cloudflareEdgeAuthority);
     setNgrokDomain(configuration.tunnel.ngrokDomain);
     setNgrokUseHttpProxy(configuration.tunnel.ngrokUseHttpProxy);
     setAllowSecretPathOnly(configuration.allowSecretPathOnly);
@@ -437,6 +444,20 @@ function ConnectionSettings({
         provider: 'ngrok',
         ngrokDomain,
         ngrokUseHttpProxy,
+      },
+    });
+  };
+
+  const saveCloudflareProxy = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const proxy = cloudflaredHttpProxy.trim();
+    const edgeAuthority = cloudflareEdgeAuthority.trim();
+    if (!proxy !== !edgeAuthority) return;
+
+    onUpdate({
+      tunnel: {
+        cloudflaredHttpProxy: proxy,
+        cloudflareEdgeAuthority: edgeAuthority,
       },
     });
   };
@@ -639,6 +660,48 @@ function ConnectionSettings({
 
       <details className="dbb-advanced-settings">
         <summary>高级连接</summary>
+        <form className="dbb-tunnel-form" onSubmit={saveCloudflareProxy}>
+          <div className="dbb-form-label">
+            <span>Cloudflare HTTP 代理（可选）</span>
+          </div>
+          <label className="dbb-form-label">
+            <span>HTTP 代理地址</span>
+            <input
+              className="dbb-field"
+              value={cloudflaredHttpProxy}
+              placeholder="http://127.0.0.1:7897"
+              aria-label="cloudflared HTTP 代理地址"
+              disabled={!editable || updating}
+              onChange={event => { setCloudflaredHttpProxy(event.currentTarget.value); }}
+            />
+          </label>
+          <label className="dbb-form-label">
+            <span>Cloudflare Edge 地址</span>
+            <input
+              className="dbb-field"
+              value={cloudflareEdgeAuthority}
+              placeholder="region1.v2.argotunnel.com:7844"
+              aria-label="Cloudflare Edge 地址"
+              disabled={!editable || updating}
+              onChange={event => { setCloudflareEdgeAuthority(event.currentTarget.value); }}
+            />
+          </label>
+          <p className="dbb-form-hint">
+            开启 Clash / TUN 后 cloudflared 直连失败时使用。两项要同时填写；
+            清空可恢复直连。Bridge 会在本机启动仅回环可用的 CONNECT 中继。
+          </p>
+          <div className="dbb-tunnel-form-actions">
+            <button
+              className="dbb-button"
+              type="submit"
+              disabled={!editable || updating || (
+                !cloudflaredHttpProxy.trim() !== !cloudflareEdgeAuthority.trim()
+              )}
+            >
+              保存 Cloudflare 代理
+            </button>
+          </div>
+        </form>
         <form className="dbb-tunnel-form" onSubmit={saveNgrok}>
           <label className="dbb-checkbox-label">
             <input
@@ -725,6 +788,8 @@ interface DashboardProps {
   onDeleteLink: (id: string) => void;
   onUpdateConfig: (update: BridgeConfigUpdate) => void;
   onReturnToBrowser: () => void;
+  onPairOAuth: () => Promise<OAuthPairingCode | undefined>;
+  onRevokeOAuth: () => Promise<void>;
 }
 
 function Dashboard({
@@ -742,6 +807,8 @@ function Dashboard({
   onDeleteLink,
   onUpdateConfig,
   onReturnToBrowser,
+  onPairOAuth,
+  onRevokeOAuth,
 }: DashboardProps) {
   const [connection, setConnection] = useState<BridgeConnectionInfo | undefined>(undefined);
   const [connectionError, setConnectionError] = useState<string | undefined>(undefined);
@@ -752,6 +819,10 @@ function Dashboard({
   const [quickOpen, setQuickOpen] = useState(false);
   const [linkName, setLinkName] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
+  const [pairing, setPairing] = useState<OAuthPairingCode | undefined>(undefined);
+  const [pairingCopied, setPairingCopied] = useState(false);
+  const [oauthError, setOauthError] = useState<string | undefined>(undefined);
+  const [now, setNow] = useState(() => Date.now());
   const status = snapshot?.bridge;
   const panes = snapshot?.browser.panes ?? [];
   const running = status?.state === 'running';
@@ -762,6 +833,7 @@ function Dashboard({
       setConnection(undefined);
       setConnectionError(undefined);
       setRevealBearer(false);
+      setPairing(undefined);
       return;
     }
     let disposed = false;
@@ -775,6 +847,11 @@ function Dashboard({
       disposed = true;
     };
   }, [getConnection, running]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => { setNow(Date.now()); }, 1000);
+    return () => { window.clearInterval(timer); };
+  }, []);
 
   const copyConnectionValue = (field: 'url' | 'bearer') => {
     const value = field === 'url' ? connection?.mcpUrl : connection?.bearerToken;
@@ -799,6 +876,51 @@ function Dashboard({
     setLinkName('');
     setLinkUrl('');
     setAdding(false);
+  };
+
+  const remaining = pairing ? Math.max(0, pairing.expiresAt - now) : 0;
+  const pairingActive = pairing !== undefined && remaining > 0;
+  const remainingLabel = `${Math.floor(remaining / 60000)}:${String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0')}`;
+
+  const generatePairing = () => {
+    void (async () => {
+      setOauthError(undefined);
+      try {
+        const next = await onPairOAuth();
+        if (next) {
+          setPairing(next);
+          setPairingCopied(false);
+        }
+      } catch (pairError) {
+        setOauthError(pairError instanceof Error ? pairError.message : String(pairError));
+      }
+    })();
+  };
+
+  const copyPairing = () => {
+    if (!pairingActive || !pairing) return;
+    void (async () => {
+      try {
+        await copyText(pairing.code);
+        setPairingCopied(true);
+        window.setTimeout(() => { setPairingCopied(false); }, 1800);
+      } catch (copyError) {
+        setOauthError(copyError instanceof Error ? copyError.message : String(copyError));
+      }
+    })();
+  };
+
+  const revokeOAuth = () => {
+    if (!window.confirm('撤销后已授权的网页 AI 需要重新授权。继续吗？')) return;
+    void (async () => {
+      setOauthError(undefined);
+      try {
+        await onRevokeOAuth();
+        setPairing(undefined);
+      } catch (revokeError) {
+        setOauthError(revokeError instanceof Error ? revokeError.message : String(revokeError));
+      }
+    })();
   };
 
   return (
@@ -1016,6 +1138,53 @@ function Dashboard({
                 </button>
               </div>
             </div>
+          </section>
+        )}
+
+        {running && (
+          <section className="dbb-section" aria-label="OAuth 授权">
+            <div className="dbb-connector-heading">
+              <div>
+                <h2 className="dbb-section-title">OAuth 授权</h2>
+                <p className="dbb-section-copy">
+                  生成配对码后，在网页 AI 打开的授权页输入，完成一次授权。
+                </p>
+              </div>
+            </div>
+            {oauthError && <p className="dbb-field-error">{oauthError}</p>}
+            <div className="dbb-connector-grid">
+              <label className="dbb-form-label">
+                配对码
+                <input
+                  className="dbb-field"
+                  readOnly
+                  value={pairingActive && pairing ? pairing.code : ''}
+                  placeholder={pairing ? '已过期，请重新生成' : '尚未生成'}
+                />
+              </label>
+              <div className="dbb-connector-actions">
+                <button className="dbb-button" type="button" onClick={generatePairing}>
+                  <LockKeyhole size={15} />
+                  生成配对码
+                </button>
+                <button
+                  className="dbb-button"
+                  type="button"
+                  disabled={!pairingActive || pairingCopied}
+                  onClick={copyPairing}
+                >
+                  {pairingCopied ? <Check size={15} /> : <Copy size={15} />}
+                  {pairingCopied ? '已复制' : '复制配对码'}
+                </button>
+                <button className="dbb-button" type="button" onClick={revokeOAuth}>
+                  <Trash2 size={15} />
+                  撤销授权
+                </button>
+              </div>
+            </div>
+            {pairingActive && (
+              <p className="dbb-section-copy">配对码有效期剩余 {remainingLabel}。</p>
+            )}
           </section>
         )}
 
@@ -1604,6 +1773,20 @@ export function BrowserBridgeView({
     });
   }, [execute, workspaceId]);
 
+  const pairOAuth = useCallback(() => (
+    execute<OAuthPairingCode>({
+      action: 'bridge.oauth.pair',
+      workspaceId,
+    })
+  ), [execute, workspaceId]);
+
+  const revokeOAuth = useCallback(async () => {
+    await execute<BridgeStatus>({
+      action: 'bridge.oauth.revoke',
+      workspaceId,
+    });
+  }, [execute, workspaceId]);
+
   const copyConnection = useCallback(() => {
     void (async () => {
       setBusy('bridge.connection');
@@ -1775,6 +1958,8 @@ export function BrowserBridgeView({
           onDeleteLink={deleteCustomLink}
           onUpdateConfig={updateBridgeConfig}
           onReturnToBrowser={() => { setShowDashboard(false); }}
+          onPairOAuth={pairOAuth}
+          onRevokeOAuth={revokeOAuth}
         />
       ) : (
         <BrowserWorkspace

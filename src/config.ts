@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import net from 'node:net';
 import path from 'node:path';
 import { z } from 'zod';
 import type { BridgeConfig } from './types.js';
@@ -33,21 +34,65 @@ const languageServerSchema = z.object({
 });
 
 const tunnelSchema = z.object({
-  provider: z.enum(['none', 'cloudflare', 'cloudflare-named', 'ngrok']).default('none'),
+  provider: z.enum([
+    'none',
+    'cloudflare',
+    'cloudflare-named',
+    'ngrok',
+    'localtunnel',
+  ]).default('none'),
   cloudflareNamedDomain: z
     .string()
     .transform(value => value.trim() || undefined)
     .optional(),
   cloudflareNamedTokenKey: z.string().min(1).default('cloudflare-tunnel-token'),
+  cloudflareEdgeBindAddress: z
+    .string()
+    .transform(value => value.trim() || undefined)
+    .refine(value => value === undefined || net.isIPv4(value), {
+      message: 'Cloudflare Edge bind address must be an IPv4 address',
+    })
+    .optional(),
+  cloudflareEdgeAuthority: z
+    .string()
+    .transform(value => value.trim() || undefined)
+    .refine(value => value === undefined || /^[^\s:/]+:\d+$/.test(value), {
+      message: 'Cloudflare Edge authority must be host:port',
+    })
+    .optional(),
+  cloudflaredHttpProxy: z
+    .string()
+    .transform(value => value.trim() || undefined)
+    .optional(),
   ngrokDomain: z
     .string()
     .transform(value => value.trim() || undefined)
     .optional(),
   ngrokUseHttpProxy: z.boolean().default(false),
+  localtunnelHost: z
+    .string()
+    .transform(value => value.trim() || undefined)
+    .optional(),
+  localtunnelHttpProxy: z
+    .string()
+    .transform(value => value.trim() || undefined)
+    .optional(),
+  localtunnelSubdomain: z
+    .string()
+    .transform(value => value.trim() || undefined)
+    .optional(),
   startupTimeoutMs: z.number().int().positive().default(20_000),
   publicHealthTimeoutMs: z.number().int().positive().default(20_000),
   cloudflaredPath: z.string().min(1).default('cloudflared'),
   ngrokPath: z.string().min(1).default('ngrok'),
+}).superRefine((value, ctx) => {
+  if (Boolean(value.cloudflaredHttpProxy) !== Boolean(value.cloudflareEdgeAuthority)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: value.cloudflaredHttpProxy ? ['cloudflareEdgeAuthority'] : ['cloudflaredHttpProxy'],
+      message: 'Cloudflare HTTP proxy and Cloudflare Edge authority must be configured together',
+    });
+  }
 });
 
 const configSchema = z.object({

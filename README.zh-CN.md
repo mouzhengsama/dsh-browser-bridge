@@ -13,7 +13,7 @@
 - 不限制页签数量；可以在单栏浏览，也可以选择两个页签分屏。
 - 把当前工作区暴露为受保护的 Streamable HTTP MCP。
 - 支持文件列表、读取、搜索、多文件 patch、命令、LSP、诊断和进度工具。
-- 支持本机模式、Cloudflare Quick Tunnel、Cloudflare Named Tunnel 和 ngrok。
+- 支持本机模式、Cloudflare Quick Tunnel、Cloudflare Named Tunnel、ngrok 和 localtunnel。
 - 随机 MCP 路径、Bearer Token、命名隧道 Token 保存到操作系统凭据库。
 - Bridge 控制入口只允许本机回环访问；网页端不能启动、停止或重置 Bridge。
 
@@ -69,7 +69,11 @@ dsh --profile demo
       startupTimeoutMs: 20000
       publicHealthTimeoutMs: 20000
       cloudflaredPath: cloudflared
+      cloudflaredHttpProxy: ''
+      cloudflareEdgeAuthority: ''
       ngrokPath: ngrok
+      localtunnelHost: ''
+      localtunnelSubdomain: ''
     languageServers: []
     persistentMode: true
 ```
@@ -82,7 +86,7 @@ dsh --profile demo
 | `allowSecretPathOnly` | 允许完全没带 Authorization 的请求通过秘密 MCP 路径；带了错误 Token 仍会拒绝。给不支持自定义 Header 的连接器使用，默认关闭。 |
 | `allowedOrigins` | 允许跨域访问 MCP 的精确网页 origin。不要使用 `*`。 |
 | `capabilities` | 远程工具能力。`write` 和 `command` 风险最高。 |
-| `tunnel.provider` | `none` 只允许本机访问；`cloudflare`、`cloudflare-named`、`ngrok` 提供公网入口。 |
+| `tunnel.provider` | `none` 只允许本机访问；`cloudflare`、`cloudflare-named`、`ngrok`、`localtunnel` 提供公网入口。 |
 | `persistentMode` | DSH 启动后自动启动 Bridge。 |
 
 配置会保存非敏感部分到工作区的 `.dsh-bridge/config.json`。敏感路径和 Token 不会写入这个文件。
@@ -151,6 +155,15 @@ winget install --id Cloudflare.cloudflared --exact --accept-package-agreements -
 
 然后在 Bridge 页面填写相同公网主机名和 Tunnel Token。Token 只保存到操作系统凭据库，不写入 `config.json`。
 
+如果 Clash / TUN 环境下 `cloudflared` 直连 Cloudflare edge 失败，可在
+**高级连接**里同时填写：
+
+- `cloudflaredHttpProxy`：HTTP 代理地址，例如 `http://127.0.0.1:7897`
+- `cloudflareEdgeAuthority`：Cloudflare edge 目标，例如 `region1.v2.argotunnel.com:7844`
+
+Bridge 会启动一个仅监听 `127.0.0.1` 的 HTTP CONNECT 中继，让 `cloudflared` 通过代理
+连接指定 edge。两项必须成对出现；同时清空表示恢复直连。
+
 ### ngrok
 
 适合已经有 ngrok 账号和保留域名的用户。先在外部完成安装和认证：
@@ -161,6 +174,22 @@ ngrok config add-authtoken <token>
 ```
 
 Bridge 只负责启动 ngrok 子进程，不会把 Authtoken 放进命令行。
+
+### localtunnel
+
+`tunnel.provider: localtunnel` 是公网回退方案，无需账号、域名或本地二进制。适合
+Cloudflare 在代理、TUN 或运营商网络下无法注册 edge 连接时的临时调试。每次启动会
+得到新的 `*.loca.lt` 或 `*.localtunnel.me` 地址。
+
+可选配置：
+
+- `localtunnelHost`：自建 localtunnel 服务地址。留空使用官方服务。
+- `localtunnelSubdomain`：请求指定子域名。这只是请求值，不保证可用；被占用时会启动失败。
+
+Bridge 会在本机启动一个仅限回环访问的适配层，再把请求转给 DSH 的 MCP 入口。适配层
+会保留 `Authorization`、`Mcp-Session-Id` 等端到端 Header，并补充 `X-Forwarded-Host`
+让 OAuth 元数据生成公网地址。localtunnel 服务的可用性和速率由服务商控制，不建议
+作为长期固定入口。
 
 ## 安全
 
@@ -191,7 +220,13 @@ Bridge 只负责启动 ngrok 子进程，不会把 Authtoken 放进命令行。
 
 ### Cloudflare 连不上
 
-`cloudflared` 常用 QUIC / UDP 7844。HTTP 代理通常不生效；必要时使用系统或全局 TUN 代理。
+`cloudflared` 默认可能使用 QUIC / UDP 7844。Bridge 会优先使用 HTTP2 / TCP，但仍可能被
+Clash、TUN 或运营商网络阻断，典型日志是 `TLS handshake with edge error: EOF`。
+这时在 **高级连接**里成对填写 `cloudflaredHttpProxy` 和 `cloudflareEdgeAuthority`，
+让 Cloudflare 连接通过 HTTP CONNECT 代理。
+
+如果开启 Clash / TUN 后 Cloudflare edge 仍无法建立连接，切换到 localtunnel 作为临时
+公网回退。它走普通 HTTPS，不需要 `cloudflared`。
 
 ### DSH 更新后插件会坏吗
 

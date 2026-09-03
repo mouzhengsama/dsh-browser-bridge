@@ -48,6 +48,8 @@ export type BridgeControlAction =
   | { action: 'bridge.connection'; workspaceId: string }
   | { action: 'bridge.config.get'; workspaceId: string }
   | { action: 'bridge.config.update'; workspaceId: string; update: BridgeConfigUpdate }
+  | { action: 'bridge.oauth.pair'; workspaceId: string }
+  | { action: 'bridge.oauth.revoke'; workspaceId: string }
   | {
     action: 'browser.open' | 'browser.navigate';
     workspaceId: string;

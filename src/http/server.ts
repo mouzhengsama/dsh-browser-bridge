@@ -9,6 +9,14 @@ import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { isInitializeRequest, type McpServer } from '@modelcontextprotocol/server';
 import express, { type Request, type Response } from 'express';
 import { createBridgeMcpServer } from '../mcp/server.js';
+import {
+  createAccessToken,
+  OAuthPersistentClientStore,
+  OAuthRefreshTokenStore,
+  type SecretStoreLike,
+  verifyAccessToken,
+} from './oauth-tokens.js';
+import type { OAuthPairingCode } from '../types.js';
 import { LocalConnectorServer } from './connector.js';
 import type { BridgeConfig, WorkspaceAdapter } from '../types.js';
 import {
@@ -19,6 +27,7 @@ import {
   parseRequestBodyLimit,
   RequestLimiter,
   RequestSecurity,
+  requestBaseUrl,
   requestLimits,
   writeJsonError,
 } from './security.js';
@@ -34,7 +43,7 @@ export interface BridgeHttpCarrier {
   readonly host: '127.0.0.1' | '0.0.0.0';
   readonly port: number;
   register(route: {
-    kind: 'prefix';
+    kind: 'path' | 'prefix';
     path: string;
     handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
   }): () => void;
@@ -56,51 +65,96 @@ export interface BridgeHttpServerOptions {
   allowSecretPathOnly?: boolean | undefined;
   carrier?: BridgeHttpCarrier | undefined;
   localConnectorPort?: number | undefined;
+  localPairingToken?: string | undefined;
+  oauthSigningKey?: string | undefined;
+  oauthSecretStore?: SecretStoreLike | undefined;
   onAccessLog?: ((event: BridgeHttpAccessEvent) => void) | undefined;
 }
+
+const OAUTH_CLIENTS_SECRET = 'oauth-clients';
+const OAUTH_REFRESH_TOKENS_SECRET = 'oauth-refresh-tokens';
+const LOCAL_PAIRING_TOKEN_SECRET = 'local-pairing-token';
 
 export class BridgeHttpServer {
   readonly mcpPath: string;
   readonly healthPath: string;
   readonly oauthResourceMetadataPath: string;
+  readonly oauthProtectedResourceIndexPath: string;
   readonly oauthAuthorizationServerPath: string;
   readonly oauthAuthorizePath: string;
   readonly oauthTokenPath: string;
-  readonly oauthRegisterPath: string;
+ readonly oauthRegisterPath: string;
+  readonly oauthRevokePath: string;
   readonly security: RequestSecurity;
+  private readonly oauthSigningKey: string;
+  private readonly localPairingToken: string;
   private readonly sessions = new Map<string, McpSession>();
   private readonly limiter: RequestLimiter;
-  private readonly oauthClients = new Map<string, { redirectUris: string[] }>();
+  private readonly oauthClients: OAuthPersistentClientStore;
   private readonly oauthCodes = new Map<string, {
     clientId: string;
     redirectUri: string;
+    codeChallengeMethod: string;
     codeChallenge: string;
+    resource: string;
+    issuer: string;
+    scopes: string[];
     expiresAt: number;
   }>();
+  private readonly oauthPairingCodes = new Map<string, number>();
+  private readonly pendingAuthorizeRequests = new Map<string, {
+    clientId: string;
+    redirectUri: string;
+    state: string;
+    codeChallenge: string;
+    codeChallengeMethod: string;
+    scopes: string[];
+    resource: string;
+    issuer: string;
+    expiresAt: number;
+  }>();
+  private readonly oauthRefreshTokens: OAuthRefreshTokenStore;
   private server: HttpServer | undefined;
   private listeningPort: number | undefined;
-  private routeDisposer: (() => void) | undefined;
+  private routeDisposers: Array<() => void> = [];
   readonly localConnector: LocalConnectorServer;
 
   constructor(private readonly options: BridgeHttpServerOptions) {
     this.mcpPath = `/mcp/${encodeURIComponent(options.secretPath)}`;
     this.healthPath = `${this.mcpPath}/health`;
     this.oauthResourceMetadataPath = `${this.mcpPath}/.well-known/oauth-protected-resource`;
-    this.oauthAuthorizationServerPath = `${this.mcpPath}/.well-known/oauth-authorization-server`;
-    this.oauthAuthorizePath = `${this.mcpPath}/oauth/authorize`;
-    this.oauthTokenPath = `${this.mcpPath}/oauth/token`;
-    this.oauthRegisterPath = `${this.mcpPath}/oauth/register`;
+    this.oauthProtectedResourceIndexPath = `/.well-known/oauth-protected-resource/mcp/${encodeURIComponent(options.secretPath)}`;
+    this.oauthAuthorizationServerPath = '/.well-known/oauth-authorization-server';
+    this.oauthAuthorizePath = '/oauth/authorize';
+    this.oauthTokenPath = '/oauth/token';
+   this.oauthRegisterPath = '/oauth/register';
+    this.oauthRevokePath = '/oauth/revoke';
+    this.oauthSigningKey = options.oauthSigningKey ?? randomBytes(32).toString('base64url');
+    this.localPairingToken = options.localPairingToken ?? randomBytes(32).toString('base64url');
+    this.oauthClients = new OAuthPersistentClientStore(
+      options.oauthSecretStore,
+      OAUTH_CLIENTS_SECRET,
+    );
+    this.oauthRefreshTokens = new OAuthRefreshTokenStore(
+      options.oauthSecretStore,
+      OAUTH_REFRESH_TOKENS_SECRET,
+    );
     this.security = new RequestSecurity(
       options.config.allowedOrigins,
       options.bearerToken,
       options.allowSecretPathOnly ?? false,
+      (token, issuer) => this.verifyOAuthAccessToken(token, issuer),
     );
     this.security.onAccessLog = options.onAccessLog;
     this.limiter = new RequestLimiter(
       options.config.limits.requestsPerMinute,
       options.config.limits.maxConcurrentRequests,
     );
-    this.localConnector = new LocalConnectorServer(this);
+    this.localConnector = new LocalConnectorServer(this, this.localPairingToken);
+  }
+
+  getLocalPairingToken(): string {
+    return this.localPairingToken;
   }
 
   get localOrigin(): string {
@@ -125,37 +179,96 @@ export class BridgeHttpServer {
     return `${origin}${this.oauthResourceMetadataPath}`;
   }
 
-  private oauthResourceMetadataPayload(request: IncomingMessage): Record<string, unknown> {
+  private oauthResourceMetadataPayload(
+    request: IncomingMessage,
+    resourcePath = this.mcpPath,
+  ): Record<string, unknown> {
+    const base = nodeBaseUrl(request);
     return {
-      resource: `${nodeBaseUrl(request)}${this.mcpPath}`,
-      authorization_servers: [nodeBaseUrl(request)],
-      scopes_supported: ['mcp'],
+      resource: `${base}${resourcePath}`,
+      authorization_servers: [base],
+      scopes_supported: ['mcp:tools', 'offline_access'],
       bearer_methods_supported: ['header'],
-      resource_documentation: `${nodeBaseUrl(request)}${this.mcpPath}`,
+      resource_name: 'DSH Browser Bridge',
+      resource_documentation: `${base}${resourcePath}`,
     };
   }
 
-  private setOAuthResourceMetadataFromRequest(req: IncomingMessage): void {
-    const metadataUrl = this.oauthResourceMetadataUrl(nodeBaseUrl(req));
-    if (this.security.bearerChallenge() !== `Bearer, resource_metadata="${metadataUrl}"`) {
-      this.security.setOAuthResourceMetadata(metadataUrl);
+  createOAuthPairingCode(): OAuthPairingCode {
+    const code = randomBytes(6).toString('base64url').replace(/[-_]/g, '0').slice(0, 8).toUpperCase();
+    const expiresAt = Date.now() + 5 * 60 * 1000;
+    this.oauthPairingCodes.set(code, expiresAt);
+    return { code, expiresAt };
+  }
+
+  private prunePendingAuthorizeRequests(): void {
+    const now = Date.now();
+    for (const [id, entry] of this.pendingAuthorizeRequests) {
+      if (entry.expiresAt <= now) this.pendingAuthorizeRequests.delete(id);
     }
   }
 
+  async revokeAllOAuthGrants(): Promise<void> {
+    await this.oauthClients.clear();
+    this.oauthCodes.clear();
+    this.oauthPairingCodes.clear();
+    this.pendingAuthorizeRequests.clear();
+    await this.oauthRefreshTokens.clearAndPersist();
+  }
+
+  private verifyOAuthAccessToken(token: string, issuerOrigin: string): boolean {
+    if (!token) return false;
+    const audience = `${issuerOrigin}${this.mcpPath}`;
+    const claims = verifyAccessToken(this.oauthSigningKey, token, issuerOrigin, audience);
+    return claims !== undefined && claims.scope.includes('mcp:tools');
+  }
+
+  private setOAuthResourceMetadataFromRequest(req: IncomingMessage): void {
+    this.security.setOAuthResourceMetadata(this.oauthResourceMetadataUrl(nodeBaseUrl(req)));
+  }
+
   async start(): Promise<void> {
-    if (this.server || this.routeDisposer) {
+    if (this.server || this.routeDisposers.length > 0) {
       return;
     }
     if (this.options.carrier) {
-      this.routeDisposer = this.options.carrier.register({
-        kind: 'prefix',
-        path: this.mcpPath,
-        handler: (req, res) => this.handleNodeRequest(req, res),
-      });
+      await this.loadPersistedOAuthState();
+      const carrierRoutes = [
+        { path: this.mcpPath, kind: 'prefix' as const },
+        { path: '/.well-known/oauth-protected-resource', kind: 'path' as const },
+        { path: '/.well-known/oauth-protected-resource/mcp', kind: 'path' as const },
+        { path: this.oauthProtectedResourceIndexPath, kind: 'path' as const },
+        { path: this.oauthAuthorizationServerPath, kind: 'path' as const },
+       { path: '/.well-known/oauth-authorization-server/mcp', kind: 'path' as const },
+        { path: '/.well-known/openid-configuration', kind: 'path' as const },
+       { path: this.oauthAuthorizePath, kind: 'path' as const },
+        { path: this.oauthTokenPath, kind: 'path' as const },
+       { path: this.oauthRegisterPath, kind: 'path' as const },
+        { path: this.oauthRevokePath, kind: 'path' as const },
+      ];
+      for (const route of carrierRoutes) {
+        this.routeDisposers.push(this.options.carrier.register({
+          ...route,
+          handler: (req, res) => this.handleNodeRequest(req, res),
+        }));
+      }
+      const fixedPort = this.options.localConnectorPort
+        ?? this.options.config.localConnectorPort
+        ?? 0;
+      if (
+        fixedPort !== 0
+        && this.options.config.tunnel.provider === 'cloudflare-named'
+        && fixedPort === this.options.carrier.port
+      ) {
+        for (const dispose of this.routeDisposers.splice(0)) dispose();
+        throw new Error(
+          'The fixed local connector port conflicts with the DSH WebServer port. Configure a different localConnectorPort for Named Tunnel.',
+        );
+      }
       this.listeningPort = this.options.carrier.port;
-      await this.localConnector.start(
-        this.options.localConnectorPort ?? this.options.config.localConnectorPort ?? 0,
-      );
+      await this.localConnector.start(fixedPort, {
+        fixed: this.options.config.tunnel.provider === 'cloudflare-named' && fixedPort !== 0,
+      });
       console.info('[dsh-browser-bridge] local connector started', {
         port: this.localConnector.port,
       });
@@ -163,35 +276,53 @@ export class BridgeHttpServer {
     }
 
     const app = express();
+    await this.loadPersistedOAuthState();
     app.disable('x-powered-by');
     app.use(express.json({ limit: this.options.config.limits.requestBodyLimit }));
     app.use(express.urlencoded({ extended: false }));
-    app.use(this.mcpPath, (req, _res, next) => {
-      this.setOAuthResourceMetadataFromRequest(req);
-      next();
-    });
-    app.use(this.mcpPath, (req, res, next) => {
-      const fullPath = `${req.baseUrl}${req.path}`;
-      if (!this.isOAuthPublicPath(fullPath)) {
-        next();
-        return;
-      }
-      this.security.applyCorsHeaders(req, res);
-      const failure = this.security.authorize(req, { skipBearer: true });
-      if (failure) {
-        if (failure.authenticate) {
-          res.setHeader('WWW-Authenticate', this.security.bearerChallenge());
+    const publicRoutes = [
+      this.mcpPath,
+      '/.well-known/oauth-protected-resource',
+      '/.well-known/oauth-protected-resource/mcp',
+      this.oauthProtectedResourceIndexPath,
+      '/.well-known/oauth-authorization-server',
+     '/.well-known/oauth-authorization-server/mcp',
+      '/.well-known/openid-configuration',
+     this.oauthAuthorizePath,
+      this.oauthTokenPath,
+     this.oauthRegisterPath,
+      this.oauthRevokePath,
+    ];
+    for (const route of publicRoutes) {
+      app.use(route, (req, res, next) => {
+        const fullPath = req.originalUrl
+          ? new URL(req.originalUrl, 'http://bridge.local').pathname
+          : `${req.baseUrl}${req.path}`;
+        if (!this.isOAuthPublicPath(fullPath)) {
+          next();
+          return;
         }
-        res.status(failure.status).json({ error: failure.message });
-        return;
-      }
-      if (req.method.toUpperCase() === 'OPTIONS') {
-        res.status(204).end();
-        return;
-      }
-      void this.handleExpressOAuthRequest(req, res);
+        this.security.setOAuthResourceMetadata(this.oauthResourceMetadataUrl(requestBaseUrl(req)));
+        this.security.applyCorsHeaders(req, res);
+        const failure = this.security.authorize(req, { skipBearer: true });
+        if (failure) {
+          if (failure.authenticate) {
+            res.setHeader('WWW-Authenticate', this.security.bearerChallenge());
+          }
+          res.status(failure.status).json({ error: failure.message });
+          return;
+        }
+        if (req.method.toUpperCase() === 'OPTIONS') {
+          res.status(204).end();
+          return;
+        }
+        void this.handleExpressOAuthRequest(req, res);
+      });
+    }
+    app.use(this.mcpPath, (req, res, next) => {
+      this.setOAuthResourceMetadataFromRequest(req);
+      this.security.middleware()(req, res, next);
     });
-    app.use(this.mcpPath, this.security.middleware());
 
     app.get(this.oauthResourceMetadataPath, (req, res) => {
       res.json(this.oauthResourceMetadataPayload(req));
@@ -239,10 +370,27 @@ export class BridgeHttpServer {
         },
       );
     });
+    await this.localConnector.start(
+      this.options.localConnectorPort
+      ?? this.options.config.localConnectorPort
+      ?? 0,
+      {
+        fixed: this.options.config.tunnel.provider === 'cloudflare-named'
+          && (this.options.localConnectorPort ?? this.options.config.localConnectorPort ?? 0) !== 0,
+      },
+    );
   }
 
   allowPublicOrigin(origin: string): void {
     this.security.allowPublicOrigin(origin);
+  }
+
+  private async loadPersistedOAuthState(): Promise<void> {
+    await this.oauthClients.load();
+    await this.oauthRefreshTokens.load(
+      this.options.oauthSecretStore ?? { get: async () => undefined, set: async () => undefined, delete: async () => undefined },
+      OAUTH_REFRESH_TOKENS_SECRET,
+    );
   }
 
   async stop(): Promise<void> {
@@ -252,16 +400,18 @@ export class BridgeHttpServer {
       await Promise.allSettled([transport.close(), server.close()]);
     }));
     await this.localConnector.stop();
-    if (this.server) {
-      const server = this.server;
-      this.server = undefined;
-      this.listeningPort = undefined;
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => error ? reject(error) : resolve());
-      });
-    }
-    this.routeDisposer?.();
-    this.routeDisposer = undefined;
+  if (this.server) {
+    const server = this.server;
+    this.server = undefined;
+    this.listeningPort = undefined;
+    // Destroy keep-alive sockets before closing so Windows releases the listener
+    // port immediately; otherwise an immediate restart races with TIME_WAIT.
+    server.closeAllConnections?.();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+    for (const dispose of this.routeDisposers.splice(0)) dispose();
     this.listeningPort = undefined;
   }
 
@@ -540,12 +690,19 @@ export class BridgeHttpServer {
 
   private isOAuthPublicPath(pathname: string): boolean {
     return (
+      pathname === '/.well-known/oauth-protected-resource' ||
+      pathname === '/.well-known/oauth-protected-resource/mcp' ||
+      pathname === this.oauthProtectedResourceIndexPath ||
+      pathname === this.oauthResourceMetadataPath ||
       pathname === this.oauthAuthorizationServerPath ||
-      pathname === this.oauthAuthorizePath ||
+     pathname === '/.well-known/oauth-authorization-server/mcp' ||
+      pathname === '/.well-known/openid-configuration' ||
+     pathname === this.oauthAuthorizePath ||
       pathname === this.oauthTokenPath ||
-      pathname === this.oauthRegisterPath
-    );
-  }
+     pathname === this.oauthRegisterPath
+      || pathname === this.oauthRevokePath
+   );
+ }
 
   private oauthAuthorizationServerPayload(request: IncomingMessage): Record<string, unknown> {
     const base = nodeBaseUrl(request);
@@ -553,12 +710,15 @@ export class BridgeHttpServer {
       issuer: base,
       authorization_endpoint: `${base}${this.oauthAuthorizePath}`,
       token_endpoint: `${base}${this.oauthTokenPath}`,
-      registration_endpoint: `${base}${this.oauthRegisterPath}`,
+     registration_endpoint: `${base}${this.oauthRegisterPath}`,
+      revocation_endpoint: `${base}${this.oauthRevokePath}`,
       response_types_supported: ['code'],
-      grant_types_supported: ['authorization_code'],
+      response_modes_supported: ['query'],
+      grant_types_supported: ['authorization_code', 'refresh_token'],
       code_challenge_methods_supported: ['S256'],
       token_endpoint_auth_methods_supported: ['none'],
-      scopes_supported: ['mcp'],
+      scopes_supported: ['mcp:tools', 'offline_access'],
+      client_id_metadata_document_supported: true,
     };
   }
 
@@ -573,6 +733,11 @@ export class BridgeHttpServer {
           jsonError: (status: number, body: unknown) => {
             if (!res.headersSent) {
               res.status(status).json(body);
+            }
+          },
+          html: (body: string) => {
+            if (!res.headersSent) {
+              res.status(200).type('html').send(body);
             }
           },
         }),
@@ -610,6 +775,12 @@ export class BridgeHttpServer {
             }
             res.end(JSON.stringify(body));
           },
+          html: (body: string) => {
+            if (!res.headersSent) {
+              res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            }
+            res.end(body);
+          },
         }),
         new URL(req.url ?? '/', 'http://bridge.local').pathname,
         undefined,
@@ -630,27 +801,74 @@ export class BridgeHttpServer {
       json: (body: unknown) => void;
       redirect: (url: string) => void;
       jsonError: (status: number, body: unknown) => void;
+      html: (body: string) => void;
     },
     pathname: string,
     parsedBody: unknown,
   ): Promise<void> {
-    if (pathname === this.oauthAuthorizationServerPath && req.method === 'GET') {
+    const issuer = nodeBaseUrl(req);
+    const resource = `${issuer}${this.mcpPath}`;
+    const requestedResource = new URL(req.url ?? '/', issuer).searchParams.get('resource');
+    if (requestedResource !== null && requestedResource !== resource) {
+      sink().jsonError(400, {
+        error: 'invalid_target',
+        error_description: 'The OAuth resource does not match this Bridge endpoint',
+      });
+      return;
+    }
+
+    if (
+      (
+        pathname === this.oauthAuthorizationServerPath
+        || pathname === '/.well-known/oauth-authorization-server/mcp'
+        || pathname === '/.well-known/openid-configuration'
+      )
+      && req.method === 'GET'
+    ) {
       sink().json(this.oauthAuthorizationServerPayload(req));
+      return;
+    }
+    if (
+      (
+        pathname === '/.well-known/oauth-protected-resource'
+        || pathname === '/.well-known/oauth-protected-resource/mcp'
+        || pathname === this.oauthProtectedResourceIndexPath
+        || pathname === this.oauthResourceMetadataPath
+      ) && req.method === 'GET'
+    ) {
+      const resourcePath = pathname === '/.well-known/oauth-protected-resource'
+        ? '/mcp'
+        : pathname === '/.well-known/oauth-protected-resource/mcp'
+          ? '/mcp'
+          : pathname === this.oauthProtectedResourceIndexPath
+            ? this.mcpPath
+          : this.mcpPath;
+      sink().json(this.oauthResourceMetadataPayload(req, resourcePath));
       return;
     }
     if (pathname === this.oauthRegisterPath && req.method === 'POST') {
       const body = parsedBody ?? (await this.readJsonBody(req));
       const redirectUris = parseRedirectUris(body);
-      if (redirectUris.length === 0) {
-        sink().jsonError(400, { error: 'invalid_client_metadata', error_description: 'redirect_uris required' });
+      if (redirectUris.length === 0 || redirectUris.some((uri) => !isAllowedRedirectUri(uri))) {
+        sink().jsonError(400, {
+          error: 'invalid_redirect_uri',
+          error_description: 'redirect_uris must be https URLs (or http://localhost for development)',
+        });
         return;
       }
       const clientId = randomBytes(16).toString('hex');
-      this.oauthClients.set(clientId, { redirectUris });
+      const clientName = parseClientName(body);
+      await this.oauthClients.save({
+        clientId,
+        redirectUris,
+        clientName,
+        createdAt: new Date().toISOString(),
+      });
       sink().json({
         client_id: clientId,
         client_id_issued_at: Math.floor(Date.now() / 1000),
         redirect_uris: redirectUris,
+        ...(clientName ? { client_name: clientName } : {}),
         token_endpoint_auth_method: 'none',
       });
       return;
@@ -661,27 +879,76 @@ export class BridgeHttpServer {
       const redirectUri = url.searchParams.get('redirect_uri') ?? '';
       const state = url.searchParams.get('state') ?? '';
       const codeChallenge = url.searchParams.get('code_challenge') ?? '';
-      const codeChallengeMethod = url.searchParams.get('code_challenge_method') ?? 'plain';
+      const codeChallengeMethod = url.searchParams.get('code_challenge_method') ?? '';
+      const scopes = parseOAuthScopes(url.searchParams.get('scope'));
       const client = this.oauthClients.get(clientId);
       if (!client || !client.redirectUris.includes(redirectUri)) {
         sink().jsonError(400, { error: 'invalid_client', error_description: 'Unknown client or redirect_uri' });
         return;
       }
-      if (!codeChallenge || !['S256', 'plain'].includes(codeChallengeMethod)) {
-        sink().jsonError(400, { error: 'invalid_request', error_description: 'code_challenge required' });
+      if (url.searchParams.get('response_type') !== 'code') {
+        sink().jsonError(400, { error: 'unsupported_response_type', error_description: 'Only response_type=code is supported' });
         return;
       }
-      const code = randomBytes(24).toString('base64url');
-      this.oauthCodes.set(code, {
+      if (!codeChallenge || codeChallengeMethod !== 'S256') {
+        sink().jsonError(400, { error: 'invalid_request', error_description: 'PKCE with S256 is required' });
+        return;
+      }
+      const storedClientName = this.oauthClients.get(clientId)?.clientName;
+      const requestId = randomBytes(16).toString('hex');
+      this.prunePendingAuthorizeRequests();
+      this.pendingAuthorizeRequests.set(requestId, {
         clientId,
         redirectUri,
-        codeChallenge: `${codeChallengeMethod}:${codeChallenge}`,
+        state,
+        codeChallenge,
+        codeChallengeMethod,
+        scopes,
+        resource,
+        issuer,
         expiresAt: Date.now() + 5 * 60 * 1000,
       });
-      const target = new URL(redirectUri);
+      sink().html(this.consentPage(storedClientName ?? clientId, requestId));
+      return;
+    }
+    if (pathname === this.oauthAuthorizePath && req.method === 'POST') {
+      this.prunePendingAuthorizeRequests();
+      const params = await this.parseOAuthBody(req, parsedBody);
+      const requestId = params.get('request_id') ?? '';
+      const pairingCode = params.get('pairing_code') ?? '';
+      const request = this.pendingAuthorizeRequests.get(requestId);
+      if (!request) {
+        sink().jsonError(400, {
+          error: 'invalid_request',
+          error_description: 'Authorization request expired. Restart the connector setup.',
+        });
+        return;
+      }
+      const pairingExpiresAt = this.oauthPairingCodes.get(pairingCode);
+      if (pairingExpiresAt === undefined || pairingExpiresAt < Date.now()) {
+        sink().jsonError(400, {
+          error: 'invalid_grant',
+          error_description: 'Invalid or expired pairing code',
+        });
+        return;
+      }
+      this.pendingAuthorizeRequests.delete(requestId);
+      this.oauthPairingCodes.delete(pairingCode);
+      const code = randomBytes(24).toString('base64url');
+      this.oauthCodes.set(code, {
+        clientId: request.clientId,
+        redirectUri: request.redirectUri,
+        codeChallengeMethod: request.codeChallengeMethod,
+        codeChallenge: request.codeChallenge,
+        resource: request.resource,
+        issuer: request.issuer,
+        scopes: request.scopes,
+        expiresAt: Date.now() + 5 * 60 * 1000,
+      });
+      const target = new URL(request.redirectUri);
       target.searchParams.set('code', code);
-      if (state) {
-        target.searchParams.set('state', state);
+      if (request.state) {
+        target.searchParams.set('state', request.state);
       }
       sink().redirect(target.toString());
       return;
@@ -701,8 +968,25 @@ export class BridgeHttpServer {
       const codeVerifier = params.get('code_verifier') ?? '';
       const clientId = params.get('client_id') ?? '';
       const redirectUri = params.get('redirect_uri') ?? '';
-      if (grantType !== 'authorization_code') {
+      if (grantType !== 'authorization_code' && grantType !== 'refresh_token') {
         sink().jsonError(400, { error: 'unsupported_grant_type' });
+        return;
+      }
+      if (grantType === 'refresh_token') {
+        const refreshToken = params.get('refresh_token') ?? '';
+        const refresh = await this.oauthRefreshTokens.consumeAndPersist(refreshToken);
+        if (
+          !refresh
+          || refresh.clientId !== clientId
+          || refresh.resource !== resource
+        ) {
+          sink().jsonError(400, {
+            error: 'invalid_grant',
+            error_description: 'Invalid, expired, or reused refresh token',
+          });
+          return;
+        }
+        sink().json(await this.issueOAuthTokens(issuer, resource, refresh.clientId, refresh.scopes));
         return;
       }
       const entry = this.oauthCodes.get(code);
@@ -715,17 +999,18 @@ export class BridgeHttpServer {
         sink().jsonError(400, { error: 'invalid_grant', error_description: 'Code was issued to a different client or redirect_uri' });
         return;
       }
-      const [method, expected] = splitChallenge(entry.codeChallenge);
-      if (!verifyCodeChallenge(method, codeVerifier, expected)) {
+      if (!verifyCodeChallenge(entry.codeChallengeMethod, codeVerifier, entry.codeChallenge)) {
         sink().jsonError(400, { error: 'invalid_grant', error_description: 'PKCE verification failed' });
         return;
       }
-      sink().json({
-        access_token: this.options.bearerToken ?? '',
-        token_type: 'Bearer',
-        expires_in: 3600,
-        scope: 'mcp',
-      });
+      sink().json(await this.issueOAuthTokens(entry.issuer, entry.resource, entry.clientId, entry.scopes));
+      return;
+    }
+    if (pathname === this.oauthRevokePath && req.method === 'POST') {
+      const params = await this.parseOAuthBody(req, parsedBody);
+      const token = params.get('token') ?? '';
+      if (token) await this.oauthRefreshTokens.revokeAndPersist(token);
+      sink().json({});
       return;
     }
     sink().jsonError(404, { error: 'not_found' });
@@ -744,6 +1029,80 @@ export class BridgeHttpServer {
     }
     return result;
   }
+
+  private async parseOAuthBody(
+    req: IncomingMessage,
+    parsedBody: unknown,
+  ): Promise<Map<string, string>> {
+    if (parsedBody !== undefined) {
+      const result = new Map<string, string>();
+      if (parsedBody && typeof parsedBody === 'object') {
+        for (const [key, value] of Object.entries(parsedBody as Record<string, unknown>)) {
+          result.set(key, typeof value === 'string' ? value : JSON.stringify(value));
+        }
+      }
+      return result;
+    }
+    return this.parseOAuthForm(req);
+  }
+
+  private async issueOAuthTokens(
+    issuer: string,
+    resource: string,
+    clientId: string,
+    scopes: string[],
+  ): Promise<Record<string, unknown>> {
+    const accessToken = createAccessToken({
+      signingKey: this.oauthSigningKey,
+      issuer,
+      audience: resource,
+      subject: clientId,
+      scopes,
+    });
+    const refreshToken = await this.oauthRefreshTokens.createAndPersist({
+      clientId,
+      resource,
+      scopes,
+    });
+    return {
+      access_token: accessToken,
+      token_type: 'Bearer',
+      expires_in: 900,
+      refresh_token: refreshToken,
+      scope: scopes.join(' '),
+    };
+  }
+
+  private consentPage(clientName: string, requestId: string): string {
+    const safeRequestId = escapeHtml(requestId);
+    return `<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>DSH Browser Bridge authorization</title>
+      <style>
+        :root { color-scheme: light dark; }
+        body { font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f5f5f7; color: #1d1d1f; }
+        form { box-sizing: border-box; width: 100%; max-width: 420px; padding: 24px; border: 1px solid #d2d2d7; border-radius: 8px; background: #fff; }
+        h1 { margin: 0 0 4px; font-size: 20px; }
+        p { margin: 0 0 20px; font-size: 14px; color: #56565c; }
+        input[type="hidden"] { display: none; }
+        input[type="text"] { box-sizing: border-box; width: 100%; padding: 12px; font-size: 22px; letter-spacing: 3px; text-align: center; text-transform: uppercase; border: 1px solid #d2d2d7; border-radius: 6px; }
+        button { width: 100%; margin-top: 16px; padding: 12px; font-size: 15px; border: 0; border-radius: 6px; background: #2563eb; color: #fff; cursor: pointer; }
+      </style>
+    </head>
+    <body>
+      <form method="POST" action="/oauth/authorize">
+        <h1>DSH Browser Bridge</h1>
+        <p>Authorization request from <strong>${escapeHtml(clientName)}</strong>. Enter the pairing code generated by Bridge.</p>
+        <input type="hidden" name="request_id" value="${safeRequestId}">
+        <input type="text" name="pairing_code" autocomplete="one-time-code" maxlength="9" autofocus required>
+        <button type="submit">Connect</button>
+      </form>
+    </body>
+    </html>`;
+  }
 }
 
 function nodeBaseUrl(request: IncomingMessage): string {
@@ -756,7 +1115,11 @@ function nodeBaseUrl(request: IncomingMessage): string {
       : (request.socket as { encrypted?: boolean } | undefined)?.encrypted
         ? 'https:'
         : 'http:';
-  const hostHeader = request.headers.host;
+  const forwardedHostHeader = request.headers['x-forwarded-host'];
+  const forwardedHost = Array.isArray(forwardedHostHeader)
+    ? forwardedHostHeader[0]
+    : forwardedHostHeader;
+  const hostHeader = forwardedHost?.split(',')[0]?.trim() || request.headers.host;
   const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
   try {
     return new URL(request.url ?? '/', `${scheme}//${host ?? 'bridge.local'}`).origin;
@@ -790,23 +1153,48 @@ function parseRedirectUris(body: unknown): string[] {
   return result;
 }
 
-function splitChallenge(stored: string): [string, string] {
-  const idx = stored.indexOf(':');
-  if (idx === -1) {
-    return ['plain', stored];
+function parseClientName(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const value = (body as Record<string, unknown>).client_name;
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, 200) : undefined;
+}
+
+function parseOAuthScopes(scope: string | null): string[] {
+  const allowed = new Set(['mcp:tools', 'offline_access']);
+  const requested = [...new Set((scope ?? '').split(/\s+/).filter(Boolean))]
+    .filter((value) => allowed.has(value));
+  return requested.length > 0 ? requested : [...allowed];
+}
+
+function isAllowedRedirectUri(uri: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(uri);
+  } catch {
+    return false;
   }
-  return [stored.slice(0, idx), stored.slice(idx + 1)];
+  if (parsed.protocol === 'https:') return true;
+  return parsed.protocol === 'http:'
+    && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function verifyCodeChallenge(method: string, verifier: string, expected: string): boolean {
-  if (method === 'S256') {
-    if (!verifier) {
-      return false;
-    }
-    const digest = createHash('sha256').update(verifier).digest('base64url');
-    return constantTimeEqual(digest, expected);
+  if (method !== 'S256' || !verifier) {
+    return false;
   }
-  return constantTimeEqual(verifier, expected);
+  const digest = createHash('sha256').update(verifier).digest('base64url');
+  return constantTimeEqual(digest, expected);
 }
 
 function constantTimeEqual(a: string, b: string): boolean {

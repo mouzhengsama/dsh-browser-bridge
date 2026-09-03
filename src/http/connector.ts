@@ -1,12 +1,18 @@
 import { createServer, type Server as HttpServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { BridgeHttpServer } from './server.js';
+import { constantTimeEqual } from './security.js';
+
+const LOCAL_PAIRING_PATH = '/__local/oauth/pairing';
 
 export class LocalConnectorServer {
   private server: HttpServer | undefined;
   private listeningPort: number | undefined;
 
-  constructor(private readonly bridge: BridgeHttpServer) {}
+  constructor(
+    private readonly bridge: BridgeHttpServer,
+    private readonly localPairingToken: string,
+  ) {}
 
   get port(): number {
     if (this.listeningPort === undefined) {
@@ -19,9 +25,14 @@ export class LocalConnectorServer {
     return this.server !== undefined;
   }
 
-  async start(preferredPort: number): Promise<void> {
+  async start(preferredPort: number, options: { fixed?: boolean } = {}): Promise<void> {
     if (this.server) return;
     const server = createServer((req, res) => {
+      const pathname = new URL(req.url ?? '/', 'http://bridge.local').pathname;
+      if (pathname === LOCAL_PAIRING_PATH) {
+        void this.handleLocalPairing(req, res);
+        return;
+      }
       void this.bridge.handleNodeRequest(req, res);
     });
     this.server = server;
@@ -29,7 +40,7 @@ export class LocalConnectorServer {
       await this.listenOn(server, preferredPort);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'EADDRINUSE' || preferredPort === 0) {
+      if (code !== 'EADDRINUSE' || preferredPort === 0 || options.fixed) {
         throw error;
       }
       console.info(`[dsh-browser-bridge] connector port ${preferredPort} is in use, ` +
@@ -52,6 +63,50 @@ export class LocalConnectorServer {
         resolve();
       });
     });
+  }
+
+  private async handleLocalPairing(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const send = (status: number, body: unknown): void => {
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
+      res.writeHead(status, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
+      res.end(JSON.stringify(body));
+    };
+
+    try {
+      if (req.socket.remoteAddress !== '127.0.0.1' && req.socket.remoteAddress !== '::1') {
+        send(403, { error: 'Local pairing endpoint is loopback-only' });
+        return;
+      }
+      if (req.headers.origin !== undefined) {
+        send(403, { error: 'Browser requests are not allowed' });
+        return;
+      }
+      const authorization = req.headers.authorization;
+      if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) {
+        send(401, { error: 'Local pairing token required' });
+        return;
+      }
+      if (!constantTimeEqual(authorization.slice('Bearer '.length), this.localPairingToken)) {
+        send(401, { error: 'Invalid local pairing token' });
+        return;
+      }
+      if (req.method !== 'POST') {
+        send(405, { error: 'Method not allowed' });
+        return;
+      }
+      for await (const _chunk of req) {
+        // Drain the request body for keep-alive correctness.
+      }
+      send(200, this.bridge.createOAuthPairingCode());
+    } catch (error) {
+      send(500, { error: error instanceof Error ? error.message : String(error) });
+    }
   }
 
   async stop(): Promise<void> {

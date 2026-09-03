@@ -161,6 +161,8 @@ function createRuntime(): {
       getConnectionInfo: ReturnType<typeof vi.fn>;
       getConfigSnapshot: ReturnType<typeof vi.fn>;
       updateConfig: ReturnType<typeof vi.fn>;
+      createOAuthPairingCode: ReturnType<typeof vi.fn>;
+      revokeAllOAuthGrants: ReturnType<typeof vi.fn>;
     };
 } {
   const status: BridgeStatus = {
@@ -189,10 +191,16 @@ function createRuntime(): {
         allowedOrigins: [],
         tunnel: {
           provider: status.tunnelProvider,
+          cloudflareEdgeBindAddress: '',
+          cloudflareEdgeAuthority: '',
           cloudflareNamedDomain: '',
           cloudflareNamedTokenConfigured: false,
+          cloudflaredHttpProxy: '',
           ngrokDomain: '',
           ngrokUseHttpProxy: false,
+          localtunnelHost: '',
+          localtunnelHttpProxy: '',
+          localtunnelSubdomain: '',
           localServiceUrl: 'http://127.0.0.1:48271',
         },
       })),
@@ -202,13 +210,24 @@ function createRuntime(): {
         allowedOrigins: [],
         tunnel: {
           provider: status.tunnelProvider,
+          cloudflareEdgeBindAddress: '',
+          cloudflareEdgeAuthority: '',
           cloudflareNamedDomain: '',
           cloudflareNamedTokenConfigured: false,
+          cloudflaredHttpProxy: '',
           ngrokDomain: '',
           ngrokUseHttpProxy: false,
+          localtunnelHost: '',
+          localtunnelHttpProxy: '',
+          localtunnelSubdomain: '',
           localServiceUrl: 'http://127.0.0.1:48271',
         },
       })),
+      createOAuthPairingCode: vi.fn(() => ({
+        code: 'TEST-PAIR-1',
+        expiresAt: Date.now() + 300_000,
+      })),
+      revokeAllOAuthGrants: vi.fn(async () => undefined),
     },
   };
 }
@@ -440,6 +459,8 @@ describe('BridgeControlHttpService', () => {
 
     await action({ action: 'bridge.connection', workspaceId: 'workspace-a' });
     await action({ action: 'bridge.config.get', workspaceId: 'workspace-a' });
+    await action({ action: 'bridge.oauth.pair', workspaceId: 'workspace-a' });
+    await action({ action: 'bridge.oauth.revoke', workspaceId: 'workspace-a' });
     await action({
       action: 'bridge.config.update',
       workspaceId: 'workspace-a',
@@ -449,6 +470,8 @@ describe('BridgeControlHttpService', () => {
     await action({ action: 'bridge.stop', workspaceId: 'workspace-a' });
     expect(runtime.getConnectionInfo).toHaveBeenCalledTimes(1);
     expect(runtime.getConfigSnapshot).toHaveBeenCalledTimes(1);
+    expect(runtime.createOAuthPairingCode).toHaveBeenCalledTimes(1);
+    expect(runtime.revokeAllOAuthGrants).toHaveBeenCalledTimes(1);
     expect(runtime.updateConfig).toHaveBeenCalledTimes(1);
     expect(runtime.resetPath).toHaveBeenCalledTimes(1);
     expect(runtime.stop).toHaveBeenCalledTimes(1);

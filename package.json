@@ -27,11 +27,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ZS520L/dsh-browser-bridge.git"
+    "url": "git+https://github.com/mouzhengsama/dsh-browser-bridge.git"
   },
-  "homepage": "https://github.com/ZS520L/dsh-browser-bridge#readme",
+  "homepage": "https://github.com/mouzhengsama/dsh-browser-bridge#readme",
   "bugs": {
-    "url": "https://github.com/ZS520L/dsh-browser-bridge/issues"
+    "url": "https://github.com/mouzhengsama/dsh-browser-bridge/issues"
   },
   "files": [
     "dist",
@@ -52,6 +52,9 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "overrides": {
+    "axios": "^1.13.4"
   },
   "license": "MIT",
   "dsh": {
@@ -104,6 +107,7 @@
     "diff": "^9.0.0",
     "express": "^5.2.1",
     "fast-glob": "^3.3.3",
+    "localtunnel": "^2.0.2",
     "vscode-jsonrpc": "^9.0.0",
     "zod": "^4.2.0"
   },

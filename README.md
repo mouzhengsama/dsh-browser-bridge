@@ -19,7 +19,8 @@ workspace and command execution stay on the machine running dsh.
 - Progress reporting for long-running remote work.
 - Bearer token authentication, random MCP path, origin checks, rate limits,
   concurrent request limits, and request body limits.
-- Cloudflare Quick Tunnel, Cloudflare Named Tunnel, ngrok, or no tunnel.
+- Cloudflare Quick Tunnel, Cloudflare Named Tunnel, ngrok, localtunnel, or no
+  tunnel.
 - Exact CORS preflight for the built-in web AI origins, with optional custom
   origins for other client-side connectors.
 - Secret path, bearer token, and named tunnel token stored in the OS keyring.
@@ -97,7 +98,11 @@ configuration is validated by the exported Schemastery `Config` schema:
           progress: true
         tunnel:
           provider: cloudflare
+          cloudflaredHttpProxy: ''
+          cloudflareEdgeAuthority: ''
           ngrokUseHttpProxy: false
+          localtunnelHost: ''
+          localtunnelSubdomain: ''
         persistentMode: false
 ```
 
@@ -120,6 +125,8 @@ failed start:
   The hostname is kept in `.dsh-bridge/config.json` inside the workspace; the
   Token is kept only in the OS keyring.
 - **ngrok** remains available when you already reserve a development domain.
+- **localtunnel** is a public fallback for networks where Cloudflare edge
+  registration is blocked; it needs no local binary or account.
 
 The dashboard saves the effective non-secret Bridge configuration to
 `.dsh-bridge/config.json`. On each dsh start it restores that file, while the
@@ -169,6 +176,15 @@ service must target the displayed local dsh web server origin and port. The
 token is stored under the configured `cloudflareNamedTokenKey` in the OS
 keyring, never in the workspace configuration.
 
+If Clash, TUN, or the local network blocks direct `cloudflared` edge connections,
+set both fields in **Advanced Connection**:
+
+- `cloudflaredHttpProxy`: for example `http://127.0.0.1:7897`
+- `cloudflareEdgeAuthority`: for example `region1.v2.argotunnel.com:7844`
+
+The Bridge starts a loopback-only HTTP CONNECT relay for `cloudflared`. The two
+fields must be supplied together; clearing both restores direct edge access.
+
 ### ngrok
 
 Set `tunnel.provider` to `ngrok`, configure `ngrokDomain`, and authenticate
@@ -177,6 +193,20 @@ child process and never places the authtoken in command-line arguments. By
 default it removes `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and their lowercase
 variants from the ngrok process environment; set
 `tunnel.ngrokUseHttpProxy: true` when ngrok must use the configured HTTP proxy.
+
+### localtunnel
+
+Set `tunnel.provider` to `localtunnel` for a temporary public endpoint when
+Cloudflare cannot register an edge connection. It uses the MIT-licensed
+localtunnel client dependency and ordinary HTTPS, so it is useful behind
+HTTP-proxy-oriented networks. Each start receives a temporary public URL.
+
+`localtunnelHost` can point to a self-hosted localtunnel server;
+`localtunnelSubdomain` is a requested subdomain and is not guaranteed to be
+available. Internally, the Bridge runs a loopback-only forwarding adapter so
+end-to-end MCP headers remain intact and OAuth metadata advertises the public
+HTTPS origin. Public localtunnel services are intended for temporary use and
+have no availability SLA.
 
 ### No tunnel
 

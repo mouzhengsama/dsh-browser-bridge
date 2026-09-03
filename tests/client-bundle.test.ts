@@ -88,6 +88,9 @@ describe('dsh client bundle', () => {
     expect(source).toContain('title="连接设置"');
     expect(source).toContain('Cloudflare Quick Tunnel（无需账号或域名）');
     expect(source).toContain('Cloudflare Named Tunnel');
+    expect(source).toContain('Cloudflare HTTP 代理（可选）');
+    expect(source).toContain('region1.v2.argotunnel.com:7844');
+    expect(source).toContain('!cloudflaredHttpProxy.trim() !== !cloudflareEdgeAuthority.trim()');
     expect(source).toContain("from './links.js'");
   });
 
