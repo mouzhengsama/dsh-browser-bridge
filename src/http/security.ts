@@ -87,6 +87,7 @@ export interface SecurityFailure {
   status: 401 | 403;
   message: string;
   authenticate?: boolean;
+  reason?: 'host-not-allowed' | 'origin-not-allowed' | 'bearer-invalid' | 'oauth-token-invalid' | 'cors-preflight-origin-not-allowed';
 }
 
 export interface BridgeHttpAccessEvent {
@@ -257,18 +258,22 @@ export class RequestSecurity {
   ): SecurityFailure | undefined {
     const hostname = hostnameFromHeader(headerValue(request.headers.host));
     if (!hostname || !this.allowedHosts.has(hostname)) {
-      return { status: 403, message: 'Host header is not allowed' };
+      return { status: 403, message: 'Host header is not allowed', reason: 'host-not-allowed' };
     }
 
     const origin = headerValue(request.headers.origin);
     if (origin) {
       if (!this.getAllowedCorsOrigin(request)) {
-        return { status: 403, message: 'Origin is not allowed' };
+        return { status: 403, message: 'Origin is not allowed', reason: 'origin-not-allowed' };
       }
     }
 
     if (request.method?.toUpperCase() === 'OPTIONS' && !this.getAllowedCorsOrigin(request)) {
-      return { status: 403, message: 'CORS origin is not allowed' };
+      return {
+        status: 403,
+        message: 'CORS origin is not allowed',
+        reason: 'cors-preflight-origin-not-allowed',
+      };
     }
 
     if (this.bearerToken && !options.skipBearer) {
@@ -284,10 +289,12 @@ export class RequestSecurity {
         !(this.bearerToken && constantTimeEqual(actual, this.bearerToken))
         && !(this.verifyOAuthAccessToken?.(actual, resourceUrl) ?? false)
       ) {
+        const looksLikeJwt = actual.split('.').length === 3;
         return {
           status: 401,
           message: 'Missing or invalid bearer token',
           authenticate: true,
+          reason: looksLikeJwt ? 'oauth-token-invalid' : 'bearer-invalid',
         };
       }
     }
@@ -297,6 +304,7 @@ export class RequestSecurity {
   middleware(): RequestHandler {
     return (req: Request, res: Response, next: NextFunction): void => {
       const startedAt = Date.now();
+      let reason = 'response';
       const originAllowed = this.getAllowedCorsOrigin(req) !== undefined;
       const hasOrigin = Boolean(req.headers.origin);
       const hasAuthorization = Boolean(req.headers.authorization);
@@ -309,7 +317,7 @@ export class RequestSecurity {
         this.onAccessLog?.({
           method: req.method,
           status: res.statusCode,
-          reason: 'response',
+          reason,
           durationMs: Date.now() - startedAt,
           hasOrigin,
           originAllowed,
@@ -324,6 +332,7 @@ export class RequestSecurity {
       const isPreflight = req.method.toUpperCase() === 'OPTIONS';
       const failure = this.authorize(req, { skipBearer: isPreflight });
       if (failure) {
+        reason = failure.reason ?? 'response';
         if (failure.authenticate) {
           res.setHeader('WWW-Authenticate', this.bearerChallenge());
         }

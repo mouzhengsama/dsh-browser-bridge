@@ -480,7 +480,7 @@ export class BridgeHttpServer {
   }
 
   async handleNodeRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const accessContext: { bodyMethod?: string } = {};
+    const accessContext: { bodyMethod?: string; reason?: string | undefined } = {};
     this.setOAuthResourceMetadataFromRequest(req);
     this.logNodeAccess(req, res, accessContext);
 
@@ -490,6 +490,7 @@ export class BridgeHttpServer {
     if (this.isOAuthPublicPath(pathname)) {
       const failure = this.security.authorize(req, { skipBearer: true });
       if (failure) {
+        accessContext.reason = failure.reason;
         writeJsonError(
           res,
           failure.status,
@@ -508,6 +509,7 @@ export class BridgeHttpServer {
     }
     const failure = this.security.authorize(req, { skipBearer: isPreflight });
     if (failure) {
+      accessContext.reason = failure.reason;
       writeJsonError(
         res,
         failure.status,
@@ -578,7 +580,7 @@ export class BridgeHttpServer {
   private logNodeAccess(
     req: IncomingMessage,
     res: ServerResponse,
-    accessContext: { bodyMethod?: string },
+    accessContext: { bodyMethod?: string; reason?: string | undefined },
   ): void {
     const startedAt = Date.now();
     const originAllowed = this.security.getAllowedCorsOrigin(req) !== undefined;
@@ -592,7 +594,7 @@ export class BridgeHttpServer {
       this.security.onAccessLog?.({
         method: req.method,
         status: res.statusCode,
-        reason: 'response',
+        reason: accessContext.reason ?? 'response',
         durationMs: Date.now() - startedAt,
         hasOrigin,
         originAllowed,

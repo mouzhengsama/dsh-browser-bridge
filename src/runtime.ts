@@ -399,14 +399,15 @@ export class BridgeRuntime {
         startedAt,
         ...(publicHealthWarning ? { error: publicHealthWarning } : { error: undefined }),
       });
-      this.startTunnelMonitor(publicTunnel, publicHealth, publicHealthVerified, bearerToken);
-      console.info('[dsh-browser-bridge] startup completed');
-      this.onStartupDiagnostic?.({
-        stage: 'runtime-started',
-        tunnelProvider: this.statusValue.tunnelProvider,
-        localOrigin: this.statusValue.localOrigin,
-        publicOrigin: this.statusValue.publicOrigin,
-      });
+     this.startTunnelMonitor(publicTunnel, publicHealth, publicHealthVerified, bearerToken);
+     console.info('[dsh-browser-bridge] startup completed');
+     this.onStartupDiagnostic?.({
+       stage: 'runtime-started',
+       tunnelProvider: this.statusValue.tunnelProvider,
+       localOrigin: this.statusValue.localOrigin,
+       publicOrigin: this.statusValue.publicOrigin,
+        publicHealthVerified,
+     });
       return this.statusValue;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -564,7 +565,6 @@ export class BridgeRuntime {
     bearerToken: string | undefined,
   ): void {
     this.tunnelMonitor?.cancel();
-    if (!tunnel.waitForExit && !healthVerifiedAtStartup) return;
 
     let cancelled = false;
     let healthTimer: NodeJS.Timeout | undefined;
@@ -609,7 +609,6 @@ export class BridgeRuntime {
       );
     }
 
-    if (!healthVerifiedAtStartup) return;
     const check = (): void => {
       if (cancelled || this.statusValue.state !== 'running') return;
       if (healthCheckRunning) {

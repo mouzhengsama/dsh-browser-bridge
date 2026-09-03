@@ -284,7 +284,7 @@ describe('BridgeHttpServer', () => {
     expect(accessEvents[0]).toMatchObject({
       method: 'GET',
       status: 401,
-      reason: 'response',
+      reason: 'bearer-invalid',
       hasAuthorization: false,
     });
     expect(accessEvents[1]).toMatchObject({
