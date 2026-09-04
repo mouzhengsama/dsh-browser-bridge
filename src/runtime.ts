@@ -576,6 +576,8 @@ export class BridgeRuntime {
     let cancelled = false;
     let healthTimer: NodeJS.Timeout | undefined;
     let healthCheckRunning = false;
+    let consecutiveHealthFailures = 0;
+    const healthFailureThreshold = 3;
     const cancel = (): void => {
       if (cancelled) return;
       cancelled = true;
@@ -623,14 +625,34 @@ export class BridgeRuntime {
         return;
       }
       healthCheckRunning = true;
-      void this.waitForHealth(healthUrl, 10_000, this.config.allowSecretPathOnly ? undefined : bearerToken)
-        .catch(error => {
-          void fail(error instanceof Error ? error.message : String(error));
-        })
-        .finally(() => {
+      void (async () => {
+        try {
+          await this.waitForHealth(
+            healthUrl,
+            15_000,
+            this.config.allowSecretPathOnly ? undefined : bearerToken,
+          );
+          consecutiveHealthFailures = 0;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          consecutiveHealthFailures += 1;
+          console.warn('[dsh-browser-bridge] public tunnel health check failed', {
+            attempt: consecutiveHealthFailures,
+            error: message,
+          });
+
+          // Startup deliberately accepts a public URL when only this machine's
+          // self-check cannot traverse the local proxy/TUN setup. Do not undo
+          // that decision on the first background probe failure.
+          if (healthVerifiedAtStartup && consecutiveHealthFailures >= healthFailureThreshold) {
+            await fail(message);
+            return;
+          }
+        } finally {
           healthCheckRunning = false;
           if (!cancelled && this.statusValue.state === 'running') schedule(60_000);
-        });
+        }
+      })();
     };
     const schedule = (delayMs: number): void => {
       healthTimer = setTimeout(check, delayMs);
@@ -660,12 +682,16 @@ export class BridgeRuntime {
             method: 'GET',
             ...(bearerToken ? { headers: { Authorization: `Bearer ${bearerToken}` } } : {}),
             timeout: Math.min(2_000, Math.max(100, deadline - Date.now())),
-          }, (res) => {
-            res.resume();
-            res.once('end', () => resolve({ statusCode: res.statusCode }));
-          });
-          req.once('error', reject);
-          req.end();
+            }, (res) => {
+              res.resume();
+              res.once('end', () => resolve({ statusCode: res.statusCode }));
+            });
+            req.once('error', reject);
+            req.once('timeout', () => {
+              req.destroy(new Error(`Request timed out after ${Math.min(5_000, Math.max(100, deadline - Date.now()))}ms`));
+              reject(new Error(`Request timed out after ${Math.min(5_000, Math.max(100, deadline - Date.now()))}ms`));
+            });
+            req.end();
         });
         if (response.statusCode === 200) {
           return;

@@ -308,6 +308,66 @@ describe('BridgeRuntime', () => {
     });
   });
 
+  it('tolerates transient public health failures before failing a verified tunnel', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const carrier = new RuntimeCarrier();
+    await carrier.start();
+    carriers.push(carrier);
+    const config = defaultConfig(process.cwd());
+    config.host = carrier.host;
+    config.port = carrier.port;
+    config.tunnel.provider = 'cloudflare-named';
+    config.tunnel.cloudflareNamedDomain = 'public-health.test';
+    const runtime = new BridgeRuntime({
+      config,
+      secrets: new MemorySecretStore(),
+      adapter: fakeAdapter(),
+      httpCarrier: carrier,
+      tunnelFactory: () => ({
+        start: async (): Promise<TunnelHandle> => ({
+          provider: 'cloudflare-named',
+          publicOrigin: 'https://public-health.test',
+          close: async () => undefined,
+        }),
+      }) as unknown as TunnelManager,
+    });
+    runtimes.push(runtime);
+
+    let publicHealthAvailable = true;
+    const runtimeWithProbe = runtime as unknown as {
+      waitForHealth: (url: string, timeoutMs: number, bearerToken?: string) => Promise<void>;
+      probeCount: number;
+    };
+    Object.defineProperty(runtimeWithProbe, 'probeCount', {
+      configurable: true,
+      writable: true,
+      value: 0,
+    });
+    vi.spyOn(runtimeWithProbe, 'waitForHealth').mockImplementation(async () => {
+      runtimeWithProbe.probeCount += 1;
+      if (!publicHealthAvailable) throw new Error('probe failed');
+    });
+
+    await expect(runtime.start()).resolves.toMatchObject({
+      state: 'running',
+      publicOrigin: 'https://public-health.test',
+    });
+
+    try {
+      publicHealthAvailable = false;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(runtime.status.state).toBe('running');
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(runtime.status.state).toBe('running');
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(runtimeWithProbe.probeCount).toBe(4);
+      expect(runtime.status.state).toBe('failed');
+      expect(runtime.status.error).toContain('probe failed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('persists editable tunnel settings without placing a named tunnel token in config', async () => {
     const carrier = new RuntimeCarrier();
     await carrier.start();
