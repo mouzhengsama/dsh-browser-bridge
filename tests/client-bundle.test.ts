@@ -71,13 +71,15 @@ describe('dsh client bundle', () => {
     const source = await readFile(path.join(root, 'src/client.tsx'), 'utf8');
     const urls = BUILT_IN_LINKS.map(link => link.url);
     expect(urls).toEqual(expect.arrayContaining([
+      'https://chatgpt.com',
+      'https://workbuddy.cn/app',
+      'https://arena.ai/agent',
+      'https://work.trae.cn',
+      'https://qwenwork.cn/app/chat',
+      'https://manus.im/app',
+      'https://shunova.cc',
       'https://doubao.com/chat',
-      'https://chat.deepseek.com',
-      'https://yiyan.baidu.com',
-      'https://hunyuan.tencent.com/bot/chat',
       'https://kimi.moonshot.cn',
-      'https://chatglm.cn',
-      'https://tiangong.cn',
     ]));
     expect(source).toContain("from './links.js'");
   });

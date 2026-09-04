@@ -498,16 +498,15 @@ export const CLIENT_STYLE = `
 
 .dbb-link-swatch {
   display: inline-flex;
-  width: 22px;
-  height: 22px;
-  flex: 0 0 22px;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
   align-items: center;
   justify-content: center;
-  border-radius: 5px;
-  color: #ffffff;
-  background: #4a7e8d;
-  font-size: 11px;
-  font-weight: 700;
+  border-radius: 8px;
+  font-size: 17px;
+  line-height: 1;
+  filter: saturate(1.2);
 }
 
 .dbb-link-label {

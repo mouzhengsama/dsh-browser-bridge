@@ -63,7 +63,7 @@ const QUICK_LINK_STORAGE = 'dsh.browserBridge.quickLinks';
 const LAYOUT_STORAGE = 'dsh.browserBridge.layout';
 const DEFAULT_PAGE = 'https://chatgpt.com';
 
-interface QuickLink extends BuiltInLink {}
+type QuickLink = BuiltInLink;
 
 type LayoutMode = 'single' | 'split';
 
@@ -763,7 +763,7 @@ function QuickLinkButtons({ links, onOpen }: QuickLinkButtonsProps) {
           onClick={() => { onOpen(link); }}
         >
           <span className="dbb-link-swatch" style={{ background: link.color }}>
-            {link.name.slice(0, 1).toUpperCase()}
+            {link.icon ?? link.name.slice(0, 1).toUpperCase()}
           </span>
           <span className="dbb-link-label">{link.name}</span>
           <ExternalLink size={14} aria-hidden="true" />
