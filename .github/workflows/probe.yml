@@ -20,15 +20,21 @@ jobs:
           echo "Target: ``$URL``" >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
           echo '### Health GET' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
           curl -sS -D - --max-time 20 "$URL" > /tmp/health_response.txt 2>&1 || true
+          cat /tmp/health_response.txt
           cat /tmp/health_response.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
           echo '' >> $GITHUB_STEP_SUMMARY
           echo '### MCP Initialize POST' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
           BASE_URL="${URL%/health}"
           curl -sS -D - --max-time 20 -X POST \
             -H 'Content-Type: application/json' \
             -H 'Accept: application/json, text/event-stream' \
             -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"gh-actions-probe","version":"1.0"}}}' \
             "$BASE_URL" > /tmp/init_response.txt 2>&1 || true
+          cat /tmp/init_response.txt
           cat /tmp/init_response.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
