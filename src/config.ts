@@ -43,7 +43,8 @@ const tunnelSchema = z.object({
   ]).default('none'),
   cloudflareNamedDomain: z
     .string()
-    .transform(value => value.trim() || undefined)
+    .transform(value => (typeof value === 'string' ? value.trim() : ''))
+    .transform(value => value || undefined)
     .optional(),
   cloudflareNamedTokenKey: z.string().min(1).default('cloudflare-tunnel-token'),
   cloudflareEdgeBindAddress: z

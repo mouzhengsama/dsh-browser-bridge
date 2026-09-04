@@ -63,6 +63,7 @@ export interface BridgeHttpServerOptions {
   secretPath: string;
   bearerToken?: string | undefined;
   allowSecretPathOnly?: boolean | undefined;
+  statelessMcp?: boolean | undefined;
   carrier?: BridgeHttpCarrier | undefined;
   localConnectorPort?: number | undefined;
   localPairingToken?: string | undefined;
@@ -89,6 +90,7 @@ export class BridgeHttpServer {
   private readonly oauthSigningKey: string;
   private readonly localPairingToken: string;
   private readonly sessions = new Map<string, McpSession>();
+  private publicOrigin: string | null = null;
   private readonly limiter: RequestLimiter;
   private readonly oauthClients: OAuthPersistentClientStore;
   private readonly oauthCodes = new Map<string, {
@@ -174,16 +176,18 @@ export class BridgeHttpServer {
     return `${this.localOrigin}${this.mcpPath}`;
   }
 
-  oauthResourceMetadataUrl(requestOrigin: string): string {
-    const origin = new URL(requestOrigin).origin;
-    return `${origin}${this.oauthResourceMetadataPath}`;
+  oauthResourceMetadataUrl(requestOrigin?: string): string {
+    const origin = requestOrigin
+      ? new URL(requestOrigin).origin
+      : (this.publicOrigin ?? 'http://127.0.0.1');
+    return `${origin}${this.oauthProtectedResourceIndexPath}`;
   }
 
   private oauthResourceMetadataPayload(
     request: IncomingMessage,
     resourcePath = this.mcpPath,
   ): Record<string, unknown> {
-    const base = nodeBaseUrl(request);
+    const base = this.effectiveBaseUrl(request);
     return {
       resource: `${base}${resourcePath}`,
       authorization_servers: [base],
@@ -224,7 +228,37 @@ export class BridgeHttpServer {
   }
 
   private setOAuthResourceMetadataFromRequest(req: IncomingMessage): void {
-    this.security.setOAuthResourceMetadata(this.oauthResourceMetadataUrl(nodeBaseUrl(req)));
+    this.security.setOAuthResourceMetadata(this.oauthResourceMetadataUrl(this.effectiveBaseUrl(req)));
+  }
+
+  setPublicOrigin(origin: string | null): void {
+    this.publicOrigin = origin;
+  }
+
+  effectiveBaseUrl(request: IncomingMessage): string {
+    if (this.publicOrigin) {
+      return this.publicOrigin;
+    }
+    const protoHeader = request.headers['x-forwarded-proto'] ?? request.headers['cf-forwarded-proto'];
+    const proto = Array.isArray(protoHeader) ? protoHeader[0] : protoHeader;
+    const forwarded = proto ? `${proto}:` : undefined;
+    const scheme =
+      forwarded === 'https:' || forwarded === 'http:'
+        ? forwarded
+        : (request.socket as { encrypted?: boolean } | undefined)?.encrypted
+          ? 'https:'
+          : 'http:';
+    const forwardedHostHeader = request.headers['x-forwarded-host'];
+    const forwardedHost = Array.isArray(forwardedHostHeader)
+      ? forwardedHostHeader[0]
+      : forwardedHostHeader;
+    const hostHeader = forwardedHost?.split(',')[0]?.trim() || request.headers.host;
+    const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
+    try {
+      return new URL(request.url ?? '/', `${scheme}//${host ?? 'bridge.local'}`).origin;
+    } catch {
+      return `${scheme}//bridge.local`;
+    }
   }
 
   async start(): Promise<void> {
@@ -302,7 +336,7 @@ export class BridgeHttpServer {
           next();
           return;
         }
-        this.security.setOAuthResourceMetadata(this.oauthResourceMetadataUrl(requestBaseUrl(req)));
+        this.security.setOAuthResourceMetadata(this.oauthResourceMetadataUrl(this.effectiveBaseUrl(req)));
         this.security.applyCorsHeaders(req, res);
         const failure = this.security.authorize(req, { skipBearer: true });
         if (failure) {
@@ -320,6 +354,13 @@ export class BridgeHttpServer {
       });
     }
     app.use(this.mcpPath, (req, res, next) => {
+      const requestPath = req.originalUrl
+        ? new URL(req.originalUrl, 'http://bridge.local').pathname
+        : `${req.baseUrl}${req.path}`;
+      if (req.method === 'GET' && requestPath === this.healthPath) {
+        next();
+        return;
+      }
       this.setOAuthResourceMetadataFromRequest(req);
       this.security.middleware()(req, res, next);
     });
@@ -328,7 +369,22 @@ export class BridgeHttpServer {
       res.json(this.oauthResourceMetadataPayload(req));
     });
 
-    app.get(this.healthPath, (_req, res) => {
+    app.get(this.healthPath, (req, res) => {
+      const hasAuthorization = Boolean(req.headers.authorization);
+      const hasOrigin = Boolean(req.headers.origin);
+      const startedAt = Date.now();
+      res.once('finish', () => {
+        this.security.onAccessLog?.({
+          method: 'GET',
+          status: res.statusCode,
+          reason: 'response',
+          durationMs: Date.now() - startedAt,
+          hasOrigin,
+          originAllowed: false,
+          hasAuthorization,
+          hasSessionId: false,
+        });
+      });
       res.json({
         ok: true,
         protocol: 'streamable-http',
@@ -382,6 +438,7 @@ export class BridgeHttpServer {
   }
 
   allowPublicOrigin(origin: string): void {
+    this.publicOrigin = origin;
     this.security.allowPublicOrigin(origin);
   }
 
@@ -417,6 +474,20 @@ export class BridgeHttpServer {
 
   private async handlePost(req: Request, res: Response): Promise<void> {
     try {
+      if (this.options.statelessMcp !== false) {
+        const transport = new NodeStreamableHTTPServerTransport({
+          sessionIdGenerator: undefined,
+          enableJsonResponse: true,
+        });
+        const server = createBridgeMcpServer(this.options.adapter, this.options.config);
+        res.once('close', () => {
+          void transport.close();
+          void server.close();
+        });
+        await server.connect(transport);
+        await transport.handleRequest(req, res, req.body);
+        return;
+      }
       const sessionId = req.headers['mcp-session-id'];
       const id = typeof sessionId === 'string' ? sessionId : undefined;
       if (id) {
@@ -507,7 +578,7 @@ export class BridgeHttpServer {
       await this.handleNodeOAuthRequest(req, res);
       return;
     }
-    const failure = this.security.authorize(req, { skipBearer: isPreflight });
+    const failure = this.security.authorize(req, { skipBearer: isPreflight || pathname === this.healthPath });
     if (failure) {
       accessContext.reason = failure.reason;
       writeJsonError(
@@ -612,6 +683,20 @@ export class BridgeHttpServer {
     res: ServerResponse,
     body: unknown,
   ): Promise<void> {
+    if (this.options.statelessMcp !== false) {
+      const transport = new NodeStreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: true,
+      });
+      const server = createBridgeMcpServer(this.options.adapter, this.options.config);
+      res.once('close', () => {
+        void transport.close();
+        void server.close();
+      });
+      await server.connect(transport);
+      await transport.handleRequest(req, res, body);
+      return;
+    }
     const sessionHeader = req.headers['mcp-session-id'];
     const sessionId = typeof sessionHeader === 'string' ? sessionHeader : undefined;
     if (sessionId) {
@@ -707,7 +792,7 @@ export class BridgeHttpServer {
  }
 
   private oauthAuthorizationServerPayload(request: IncomingMessage): Record<string, unknown> {
-    const base = nodeBaseUrl(request);
+    const base = this.effectiveBaseUrl(request);
     return {
       issuer: base,
       authorization_endpoint: `${base}${this.oauthAuthorizePath}`,
@@ -808,7 +893,7 @@ export class BridgeHttpServer {
     pathname: string,
     parsedBody: unknown,
   ): Promise<void> {
-    const issuer = nodeBaseUrl(req);
+    const issuer = this.effectiveBaseUrl(req);
     const resource = `${issuer}${this.mcpPath}`;
     const requestedResource = new URL(req.url ?? '/', issuer).searchParams.get('resource');
     if (requestedResource !== null && requestedResource !== resource) {
@@ -872,6 +957,8 @@ export class BridgeHttpServer {
         redirect_uris: redirectUris,
         ...(clientName ? { client_name: clientName } : {}),
         token_endpoint_auth_method: 'none',
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
       });
       return;
     }
@@ -1107,28 +1194,7 @@ export class BridgeHttpServer {
   }
 }
 
-function nodeBaseUrl(request: IncomingMessage): string {
-  const protoHeader = request.headers['x-forwarded-proto'] ?? request.headers['cf-forwarded-proto'];
-  const proto = Array.isArray(protoHeader) ? protoHeader[0] : protoHeader;
-  const forwarded = proto ? `${proto}:` : undefined;
-  const scheme =
-    forwarded === 'https:' || forwarded === 'http:'
-      ? forwarded
-      : (request.socket as { encrypted?: boolean } | undefined)?.encrypted
-        ? 'https:'
-        : 'http:';
-  const forwardedHostHeader = request.headers['x-forwarded-host'];
-  const forwardedHost = Array.isArray(forwardedHostHeader)
-    ? forwardedHostHeader[0]
-    : forwardedHostHeader;
-  const hostHeader = forwardedHost?.split(',')[0]?.trim() || request.headers.host;
-  const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
-  try {
-    return new URL(request.url ?? '/', `${scheme}//${host ?? 'bridge.local'}`).origin;
-  } catch {
-    return `${scheme}//bridge.local`;
-  }
-}
+
 
 function parseRedirectUris(body: unknown): string[] {
   if (!body || typeof body !== 'object') {

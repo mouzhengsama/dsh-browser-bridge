@@ -276,12 +276,22 @@ export class RequestSecurity {
       };
     }
 
-    if (this.bearerToken && !options.skipBearer) {
+    if (!options.skipBearer) {
       const authorization = headerValue(request.headers.authorization);
-      if (this.allowSecretPathOnly && authorization === undefined) {
+      if (authorization === undefined) {
+        const missingHeaderAllowed = this.allowSecretPathOnly;
+        if (!missingHeaderAllowed && (this.bearerToken || this.verifyOAuthAccessToken)) {
+          return {
+            status: 401,
+            message: 'Missing or invalid bearer token',
+            authenticate: true,
+            reason: 'bearer-invalid',
+          };
+        }
         return undefined;
       }
-      const actual = authorization?.startsWith('Bearer ')
+
+      const actual = authorization.startsWith('Bearer ')
         ? authorization.slice('Bearer '.length)
         : '';
       const resourceUrl = requestBaseUrl(request);

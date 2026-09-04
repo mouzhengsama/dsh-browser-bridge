@@ -180,11 +180,14 @@ describe('BridgeHttpServer', () => {
       config,
       adapter,
       secretPath: 'test-secret',
+      bearerToken: 'test-bearer-token',
     });
     servers.push(server);
     await server.start();
 
-    const health = await fetch(`${server.localOrigin}${server.healthPath}`);
+    const health = await fetch(`${server.localOrigin}${server.healthPath}`, {
+      headers: { Authorization: 'Bearer test-bearer-token' },
+    });
     expect(health.status).toBe(200);
     expect(await health.json()).toEqual({
       ok: true,
@@ -193,7 +196,14 @@ describe('BridgeHttpServer', () => {
     });
 
     const client = new Client({ name: 'test-client', version: '1.0.0' });
-    const transport = new StreamableHTTPClientTransport(new URL(server.mcpUrl));
+    const transport = new StreamableHTTPClientTransport(
+      new URL(server.mcpUrl),
+      {
+        requestInit: {
+          headers: { Authorization: 'Bearer test-bearer-token' },
+        },
+      },
+    );
     await client.connect(transport);
     const tools = await client.listTools();
     expect(tools.tools.map((tool) => tool.name)).toContain('read_file');
@@ -205,7 +215,7 @@ describe('BridgeHttpServer', () => {
     await client.close();
   });
 
-  it('requires the configured bearer token before health or MCP requests', async () => {
+  it('keeps the public health endpoint reachable without auth and still requires the bearer token for MCP requests', async () => {
     const config = defaultConfig(process.cwd());
     config.port = await freePort();
     const adapter = await LocalWorkspaceAdapter.create(config);
@@ -219,15 +229,24 @@ describe('BridgeHttpServer', () => {
     servers.push(server);
     await server.start();
 
-    const unauthorized = await fetch(`${server.localOrigin}${server.healthPath}`);
-    expect(unauthorized.status).toBe(401);
-    const authorized = await fetch(`${server.localOrigin}${server.healthPath}`, {
+    const health = await fetch(`${server.localOrigin}${server.healthPath}`);
+    expect(health.status).toBe(200);
+    const healthJson = await health.json() as Record<string, unknown>;
+    expect(healthJson).toHaveProperty('ok', true);
+    const healthWithAuth = await fetch(`${server.localOrigin}${server.healthPath}`, {
       headers: { Authorization: 'Bearer test-token' },
     });
-    expect(authorized.status).toBe(200);
+    expect(healthWithAuth.status).toBe(200);
+
+    const mcpUnauthorized = await fetch(`${server.localOrigin}${server.mcpPath}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }),
+    });
+    expect(mcpUnauthorized.status).toBe(401);
   });
 
-  it('allows missing authorization only when secret-path mode is enabled', async () => {
+  it('allows MCP without an authorization header when secret-path mode is enabled', async () => {
     const config = defaultConfig(process.cwd());
     config.port = await freePort();
     const adapter = await LocalWorkspaceAdapter.create(config);
@@ -255,7 +274,9 @@ describe('BridgeHttpServer', () => {
       },
     );
 
-    await expect(request()).resolves.toMatchObject({ status: 200 });
+    const unauthenticated = await request();
+    expect(unauthenticated.status).toBe(200);
+    await unauthenticated.body?.cancel();
     await expect(request('Bearer wrong-token')).resolves.toMatchObject({ status: 401 });
   });
 
@@ -283,8 +304,8 @@ describe('BridgeHttpServer', () => {
     expect(accessEvents).toHaveLength(2);
     expect(accessEvents[0]).toMatchObject({
       method: 'GET',
-      status: 401,
-      reason: 'bearer-invalid',
+      status: 200,
+      reason: 'response',
       hasAuthorization: false,
     });
     expect(accessEvents[1]).toMatchObject({
@@ -368,6 +389,7 @@ describe('BridgeHttpServer', () => {
       config,
       adapter,
       secretPath: 'carrier-secret',
+      bearerToken: 'carrier-bearer-token',
       carrier,
     });
     servers.push(server);
@@ -388,7 +410,9 @@ describe('BridgeHttpServer', () => {
     ]);
     expect(server.localOrigin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
     const connectorOrigin = server.localOrigin;
-    const carrierHealth = await fetch(`${carrierOrigin(carrier)}${server.healthPath}`);
+    const carrierHealth = await fetch(`${carrierOrigin(carrier)}${server.healthPath}`, {
+      headers: { Authorization: 'Bearer carrier-bearer-token' },
+    });
     expect(await carrierHealth.json()).toEqual({
       ok: true,
       protocol: 'streamable-http',
@@ -396,11 +420,20 @@ describe('BridgeHttpServer', () => {
     });
 
     const client = new Client({ name: 'carrier-client', version: '1.0.0' });
-    await client.connect(new StreamableHTTPClientTransport(new URL(server.mcpUrl)));
+    await client.connect(new StreamableHTTPClientTransport(
+      new URL(server.mcpUrl),
+      {
+        requestInit: {
+          headers: { Authorization: 'Bearer carrier-bearer-token' },
+        },
+      },
+    ));
     expect((await client.listTools()).tools.map((tool) => tool.name)).toContain('read_file');
     await client.close();
 
-    const connectorHealth = await fetch(`${connectorOrigin}${server.healthPath}`);
+    const connectorHealth = await fetch(`${connectorOrigin}${server.healthPath}`, {
+      headers: { Authorization: 'Bearer carrier-bearer-token' },
+    });
     expect(await connectorHealth.json()).toMatchObject({
       ok: true,
       protocol: 'streamable-http',
@@ -410,7 +443,14 @@ describe('BridgeHttpServer', () => {
       version: '1.0.0',
     });
     await connectorClient.connect(
-      new StreamableHTTPClientTransport(new URL(`${connectorOrigin}${server.mcpPath}`)),
+      new StreamableHTTPClientTransport(
+        new URL(`${connectorOrigin}${server.mcpPath}`),
+        {
+          requestInit: {
+            headers: { Authorization: 'Bearer carrier-bearer-token' },
+          },
+        },
+      ),
     );
     expect((await connectorClient.listTools()).tools.map((tool) => tool.name))
       .toContain('read_file');
@@ -442,6 +482,7 @@ describe('BridgeHttpServer', () => {
         config,
         adapter,
         secretPath: 'fallback-secret',
+        bearerToken: 'fallback-bearer-token',
         carrier,
         localConnectorPort: occupiedAddress.port,
       });
@@ -451,7 +492,9 @@ describe('BridgeHttpServer', () => {
       expect(server.localOrigin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
       expect(new URL(server.localOrigin).port).not.toBe(String(occupiedAddress.port));
 
-      const health = await fetch(`${server.localOrigin}${server.healthPath}`);
+      const health = await fetch(`${server.localOrigin}${server.healthPath}`, {
+        headers: { Authorization: 'Bearer fallback-bearer-token' },
+      });
       expect(health.status).toBe(200);
       expect(await health.json()).toMatchObject({
         ok: true,
@@ -506,6 +549,7 @@ describe('BridgeHttpServer', () => {
       adapter,
       secretPath: useCarrier ? 'carrier-cors-secret' : 'standalone-cors-secret',
       bearerToken: 'cors-token',
+      statelessMcp: false,
       ...(carrier ? { carrier } : {}),
     });
     servers.push(server);
@@ -590,6 +634,7 @@ describe('BridgeHttpServer', () => {
       adapter,
       secretPath: useCarrier ? 'carrier-oauth-secret' : 'standalone-oauth-secret',
       bearerToken: 'oauth-discovery-token',
+      statelessMcp: false,
       ...(carrier ? { carrier } : {}),
     });
     servers.push(server);
@@ -640,11 +685,11 @@ describe('BridgeHttpServer', () => {
       resource_documentation: `${publicOrigin}${server.mcpPath}`,
     });
 
-    const unauthorized = await fetch(`${origin}${server.healthPath}`);
-    expect(unauthorized.status).toBe(401);
-    expect(unauthorized.headers.get('www-authenticate')).toBe(
-      `Bearer, resource_metadata="${metadataUrl}"`,
-    );
+    const health = await fetch(`${origin}${server.healthPath}`);
+    expect(health.status).toBe(200);
+    const healthJson = await health.json() as Record<string, unknown>;
+    expect(healthJson).toHaveProperty('ok', true);
+    expect(healthJson).toHaveProperty('protocol', 'streamable-http');
   });
 
   it.each([
@@ -780,6 +825,7 @@ describe('BridgeHttpServer', () => {
       bearerToken: 'static-bearer',
       allowSecretPathOnly: true,
       oauthSigningKey: 'jwt-signing-key',
+      statelessMcp: false,
       ...(carrier ? { carrier } : {}),
     });
     servers.push(server);
@@ -1034,6 +1080,118 @@ describe('BridgeHttpServer', () => {
       }),
     });
     expect(afterRevoke.status).toBe(400);
+  });
+});
+
+
+describe('effectiveBaseUrl public-origin anchoring', () => {
+  it.each([
+    { name: 'standalone HTTP server', carrier: false },
+    { name: 'DSH HTTP carrier', carrier: true },
+  ])(
+    'oauth metadata + authorization-server discovery anchor to publicOrigin when set ($name)',
+    async ({ carrier: useCarrier }) => {
+      const carrier = useCarrier ? new TestCarrier() : undefined;
+      if (carrier) {
+        await carrier.start();
+        carriers.push(carrier);
+      }
+      const config = defaultConfig(process.cwd());
+      config.port = carrier?.port ?? await freePort();
+      const adapter = await LocalWorkspaceAdapter.create(config);
+      adapters.push(adapter);
+      const server = new BridgeHttpServer({
+        config,
+        adapter,
+        secretPath: useCarrier ? 'carrier-public-origin-secret' : 'standalone-public-origin-secret',
+        bearerToken: 'public-origin-token',
+        ...(carrier ? { carrier } : {}),
+      });
+      servers.push(server);
+      await server.start();
+
+      const publicOrigin = 'https://mcp.dshmcp.eu.cc';
+      server.allowPublicOrigin(publicOrigin);
+
+      const localOrigin = useCarrier
+        ? carrierOrigin(carrier!)
+        : new URL(server.mcpUrl).origin;
+
+      const metadataRes = await fetch(`${localOrigin}${server.oauthResourceMetadataPath}`, {
+        headers: { Accept: 'application/json' },
+      });
+      expect(metadataRes.status).toBe(200);
+      const metadata = await metadataRes.json() as Record<string, unknown>;
+      expect(metadata.resource).toBe(`${publicOrigin}${server.mcpPath}`);
+      expect(metadata.authorization_servers).toEqual([publicOrigin]);
+      expect(metadata.resource_documentation).toBe(`${publicOrigin}${server.mcpPath}`);
+
+      const authRes = await fetch(`${localOrigin}/.well-known/oauth-authorization-server`, {
+        headers: { Accept: 'application/json' },
+      });
+      expect(authRes.status).toBe(200);
+      const authPayload = await authRes.json() as Record<string, unknown>;
+      expect(authPayload.issuer).toBe(publicOrigin);
+      expect((authPayload.authorization_endpoint as string).startsWith(publicOrigin)).toBe(true);
+      expect((authPayload.token_endpoint as string).startsWith(publicOrigin)).toBe(true);
+
+      const healthRes = await fetch(`${localOrigin}${server.healthPath}`);
+      expect(healthRes.status).toBe(200);
+      const healthJson = await healthRes.json() as Record<string, unknown>;
+      expect(healthJson).toHaveProperty('ok', true);
+      expect(healthJson).toHaveProperty('protocol', 'streamable-http');
+    },
+  );
+
+  it('oauthResourceMetadataUrl() defaults to publicOrigin when called with no args', async () => {
+    const carrier = new TestCarrier();
+    await carrier.start();
+    carriers.push(carrier);
+    const config = defaultConfig(process.cwd());
+    const adapter = await LocalWorkspaceAdapter.create(config);
+    adapters.push(adapter);
+    const server = new BridgeHttpServer({
+      config,
+      adapter,
+      secretPath: 'meta-url-test-secret',
+      bearerToken: 'meta-url-token',
+      carrier,
+    });
+    servers.push(server);
+    await server.start();
+
+   server.allowPublicOrigin('https://mcp.dshmcp.eu.cc');
+   expect(server.oauthResourceMetadataUrl()).toBe(
+      'https://mcp.dshmcp.eu.cc' + server.oauthProtectedResourceIndexPath,
+   );
+  });
+
+  it('falls back to x-forwarded-* when publicOrigin not set', async () => {
+    const config = defaultConfig(process.cwd());
+    config.port = await freePort();
+    const adapter = await LocalWorkspaceAdapter.create(config);
+    adapters.push(adapter);
+    const server = new BridgeHttpServer({
+      config,
+      adapter,
+      secretPath: 'fallback-secret',
+      bearerToken: 'fallback-token',
+    });
+    servers.push(server);
+    await server.start();
+
+    const localOrigin = new URL(server.mcpUrl).origin;
+    const res = await fetch(`${localOrigin}${server.oauthResourceMetadataPath}`, {
+      headers: {
+        Accept: 'application/json',
+        'x-forwarded-proto': 'https',
+        'x-forwarded-host': 'mcp.example.com',
+      },
+    });
+    expect(res.status).toBe(200);
+    const metadata = await res.json() as Record<string, unknown>;
+    expect(metadata.resource).toBe(`https://mcp.example.com${server.mcpPath}`);
+    expect(metadata.authorization_servers).toEqual(['https://mcp.example.com']);
   });
 });
 

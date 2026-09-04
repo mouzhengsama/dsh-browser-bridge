@@ -1,6 +1,7 @@
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { ensureSecret, KeyringSecretStore } from './security/secrets.js';
+import { FileSecretStore } from './security/file-secrets.js';
 import { BUILT_IN_ORIGINS } from './links.js';
 import { BridgeHttpServer, type BridgeHttpCarrier } from './http/server.js';
 import { normalizeOrigin } from './http/security.js';
@@ -26,6 +27,7 @@ const LOCAL_PAIRING_TOKEN_SECRET = 'local-pairing-token';
 export interface BridgeRuntimeOptions {
   config: BridgeConfig;
   secrets?: SecretStore;
+  oauthSecretStore?: SecretStore;
   adapter?: WorkspaceAdapter;
   httpCarrier?: BridgeHttpCarrier | undefined;
   onAccessLog?: ((event: import('./http/server.js').BridgeHttpAccessEvent) => void) | undefined;
@@ -38,6 +40,7 @@ export class BridgeRuntime {
   readonly config: BridgeConfig;
   readonly adapterPromise: Promise<WorkspaceAdapter>;
   readonly secrets: SecretStore;
+  private readonly oauthSecretStore: SecretStore;
   private readonly httpCarrier: BridgeHttpCarrier | undefined;
   private readonly onAccessLog: ((event: import('./http/server.js').BridgeHttpAccessEvent) => void) | undefined;
   private readonly onConfigChanged: ((config: BridgeConfig) => Promise<void>) | undefined;
@@ -55,6 +58,10 @@ export class BridgeRuntime {
   constructor(options: BridgeRuntimeOptions) {
     this.config = options.config;
     this.secrets = options.secrets ?? new KeyringSecretStore(options.config.workspaceRoot);
+    this.oauthSecretStore = options.oauthSecretStore ?? new FileSecretStore({
+      rootDir: this.config.workspaceRoot,
+      keyring: this.secrets,
+    });
     this.httpCarrier = options.httpCarrier;
     this.onAccessLog = options.onAccessLog;
     this.onConfigChanged = options.onConfigChanged;
@@ -308,15 +315,16 @@ export class BridgeRuntime {
       const oauthSigningKey = await ensureSecret(this.secrets, OAUTH_SIGNING_KEY);
       const localPairingToken = await ensureSecret(this.secrets, LOCAL_PAIRING_TOKEN_SECRET);
       const http = new BridgeHttpServer({
-       config: this.config,
-       adapter,
-       secretPath: pathSecret,
-       bearerToken,
-       allowSecretPathOnly: this.config.allowSecretPathOnly,
+        config: this.config,
+        adapter,
+        secretPath: pathSecret,
+        bearerToken,
+        allowSecretPathOnly: this.config.allowSecretPathOnly,
+        statelessMcp: true,
        localConnectorPort: this.config.localConnectorPort,
        localPairingToken,
         oauthSigningKey,
-       oauthSecretStore: this.secrets,
+       oauthSecretStore: this.oauthSecretStore,
        ...(this.httpCarrier ? { carrier: this.httpCarrier } : {}),
        ...(this.onAccessLog ? { onAccessLog: this.onAccessLog } : {}),
       });

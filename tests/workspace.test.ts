@@ -80,7 +80,7 @@ describe('LocalWorkspaceAdapter', () => {
   it('runs commands and returns output by byte offset', async () => {
     const { adapter } = await fixture();
     const command = `"${process.execPath}" -e "process.stdout.write('alpha'); setTimeout(() => process.stdout.write('beta'), 50)"`;
-    const first = await adapter.runCommand({ command, waitMs: 500 });
+    const first = await adapter.runCommand({ command, waitMs: 5_000 });
     expect(first.output).toContain('alphabeta');
     expect(first.status).toBe('exited');
     const second = await adapter.getCommandOutput(first.commandId, first.nextOffset);

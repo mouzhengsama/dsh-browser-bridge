@@ -524,6 +524,8 @@ export async function apply(
   await recordStartupDiagnostic('config-resolved', {
     capabilities: config.capabilities,
     commandRuntime: config.commandRuntime,
+    requireBearerToken: config.requireBearerToken,
+    allowSecretPathOnly: config.allowSecretPathOnly,
     tunnelProvider: config.tunnel.provider,
     savedTunnelProvider: savedConfig?.tunnel.provider,
     overlayTunnelProvider: configured.tunnel.provider,
