@@ -1,0 +1,565 @@
+npm notice run @dsh/browser-bridge@1.0.0 npx
+npm notice run vitest run
+
+[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90mE:/UserData/My Documents/ChatGPT/Browser Bridge[39m
+
+ [32m✓[39m tests/file-secrets.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 491[2mms[22m[39m
+   [33m[2m✓[22m[39m FileSecretStore[2m > [22mround-trips values larger than the Windows keyring 2560-char cap [33m 478[2mms[22m[39m
+ [32m✓[39m tests/config.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 335[2mms[22m[39m
+ [32m✓[39m tests/dsh-adapter.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 168[2mms[22m[39m
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mserves snapshots, dispatches browser actions, and returns the latest snapshot on close
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'GET'[39m,
+  url: [32m'/browser-bridge/control/snapshot?workspaceId=workspace-a'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [90mundefined[39m
+}
+
+ [32m✓[39m tests/package.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 13[2mms[22m[39m
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mserves snapshots, dispatches browser actions, and returns the latest snapshot on close
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mserves snapshots, dispatches browser actions, and returns the latest snapshot on close
+[22m[39m[dsh-browser-bridge] control action body read completed { action: [32m'browser.open'[39m }
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mserves snapshots, dispatches browser actions, and returns the latest snapshot on close
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mserves snapshots, dispatches browser actions, and returns the latest snapshot on close
+[22m[39m[dsh-browser-bridge] control action body read completed { action: [32m'browser.close'[39m }
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mrejects non-loopback and cross-site control requests
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'GET'[39m,
+  url: [32m'/browser-bridge/control/snapshot?workspaceId=workspace-a'[39m,
+  remoteAddress: [32m'10.0.0.4'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [90mundefined[39m
+}
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mrejects non-loopback and cross-site control requests
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'GET'[39m,
+  url: [32m'/browser-bridge/control/snapshot?workspaceId=workspace-a'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [32m'cross-site'[39m,
+  contentType: [90mundefined[39m
+}
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mvalidates content type, JSON size, actions, URLs, and bounds
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'text/plain'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+stderr | tests/browser-control.test.ts > BridgeControlHttpService > validates content type, JSON size, actions, URLs, and bounds
+[dsh-browser-bridge] control request failed {
+  method: 'POST',
+  url: '/browser-bridge/control/action',
+  error: 'Content-Type must be application/json'
+}
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mvalidates content type, JSON size, actions, URLs, and bounds
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+stderr | tests/browser-control.test.ts > BridgeControlHttpService > validates content type, JSON size, actions, URLs, and bounds
+[dsh-browser-bridge] control request failed {
+  method: 'POST',
+  url: '/browser-bridge/control/action',
+  error: "Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+}
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mvalidates content type, JSON size, actions, URLs, and bounds
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mvalidates content type, JSON size, actions, URLs, and bounds
+[22m[39m[dsh-browser-bridge] control action body read completed { action: [32m'browser.open'[39m }
+
+stderr | tests/browser-control.test.ts > BridgeControlHttpService > validates content type, JSON size, actions, URLs, and bounds
+[dsh-browser-bridge] control request failed {
+  method: 'POST',
+  url: '/browser-bridge/control/action',
+  error: 'Only HTTP and HTTPS browser URLs are allowed'
+}
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mvalidates content type, JSON size, actions, URLs, and bounds
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mvalidates content type, JSON size, actions, URLs, and bounds
+[22m[39m[dsh-browser-bridge] control action body read completed { action: [32m'browser.bounds'[39m }
+
+stderr | tests/browser-control.test.ts > BridgeControlHttpService > validates content type, JSON size, actions, URLs, and bounds
+[dsh-browser-bridge] control request failed {
+  method: 'POST',
+  url: '/browser-bridge/control/action',
+  error: 'Browser bounds must contain finite numbers'
+}
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mvalidates content type, JSON size, actions, URLs, and bounds
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+stderr | tests/browser-control.test.ts > BridgeControlHttpService > validates content type, JSON size, actions, URLs, and bounds
+[dsh-browser-bridge] control request failed {
+  method: 'POST',
+  url: '/browser-bridge/control/action',
+  error: 'Unknown control action "browser.unknown"'
+}
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mvalidates content type, JSON size, actions, URLs, and bounds
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+stderr | tests/browser-control.test.ts > BridgeControlHttpService > validates content type, JSON size, actions, URLs, and bounds
+[dsh-browser-bridge] control request failed {
+  method: 'POST',
+  url: '/browser-bridge/control/action',
+  error: 'Control request body is too large'
+}
+
+ [32m✓[39m tests/oauth-token-store.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 1533[2mms[22m[39m
+   [33m[2m✓[22m[39m OAuthRefreshTokenStore + FileSecretStore[2m > [22mpersists many tokens across a store reload without blowing past the 2560-char keyring cap [33m 1342[2mms[22m[39m
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control action body read completed { action: [32m'bridge.start'[39m }
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control action body read completed { action: [32m'bridge.connection'[39m }
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control action body read completed { action: [32m'bridge.config.get'[39m }
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control action body read completed { action: [32m'bridge.oauth.pair'[39m }
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control action body read completed { action: [32m'bridge.oauth.revoke'[39m }
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control action body read completed { action: [32m'bridge.config.update'[39m }
+
+ [32m✓[39m tests/browser-host.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 32[2mms[22m[39m
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control action body read completed { action: [32m'bridge.reset'[39m }
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control request {
+  method: [32m'POST'[39m,
+  url: [32m'/browser-bridge/control/action'[39m,
+  remoteAddress: [32m'127.0.0.1'[39m,
+  rendererHeaderPresent: [33mfalse[39m,
+  rendererHeaderLength: [33m0[39m,
+  secFetchSite: [90mundefined[39m,
+  contentType: [32m'application/json'[39m
+}
+[dsh-browser-bridge] control action body read started
+
+[90mstdout[2m | tests/browser-control.test.ts[2m > [22m[2mBridgeControlHttpService[2m > [22m[2mdispatches bridge lifecycle and connection actions
+[22m[39m[dsh-browser-bridge] control action body read completed { action: [32m'bridge.stop'[39m }
+
+ [32m✓[39m tests/browser-control.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 1575[2mms[22m[39m
+   [33m[2m✓[22m[39m BridgeControlHttpService[2m > [22mserves snapshots, dispatches browser actions, and returns the latest snapshot on close [33m 1176[2mms[22m[39m
+   [33m[2m✓[22m[39m BridgeControlHttpService[2m > [22mdispatches bridge lifecycle and connection actions [33m 318[2mms[22m[39m
+ [32m✓[39m tests/links.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m tests/workspace.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 242[2mms[22m[39m
+ [32m✓[39m tests/runtime-origins.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 18[2mms[22m[39m
+stderr | tests/dsh-plugin.test.ts > dsh plugin entry point > keeps the plugin loaded when persistent startup fails
+[dsh-browser-bridge] persistent start failed { message: 'tunnel offline' }
+
+ [32m✓[39m tests/dsh-plugin.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 54[2mms[22m[39m
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mtreats a registered carrier route as locally ready without probing through host auth
+[22m[39m[dsh-browser-bridge] startup stage: waiting for workspace adapter
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mtreats a registered carrier route as locally ready without probing through host auth
+[22m[39m[dsh-browser-bridge] startup stage: loading MCP path secret
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mtreats a registered carrier route as locally ready without probing through host auth
+[22m[39m[dsh-browser-bridge] startup stage: loading bearer token
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mtreats a registered carrier route as locally ready without probing through host auth
+[22m[39m[dsh-browser-bridge] startup stage: registering MCP HTTP routes
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mtreats a registered carrier route as locally ready without probing through host auth
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49612[39m }
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mtreats a registered carrier route as locally ready without probing through host auth
+[22m[39m[dsh-browser-bridge] HTTP routes started { localOrigin: [32m'http://127.0.0.1:49612'[39m }
+[dsh-browser-bridge] startup stage: checking local MCP health
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mtreats a registered carrier route as locally ready without probing through host auth
+[22m[39m[dsh-browser-bridge] local-only startup completed
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mwithholds credentials until running, rotates its path, and disposes once
+[22m[39m[dsh-browser-bridge] startup stage: waiting for workspace adapter
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mwithholds credentials until running, rotates its path, and disposes once
+[22m[39m[dsh-browser-bridge] startup stage: loading MCP path secret
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mwithholds credentials until running, rotates its path, and disposes once
+[22m[39m[dsh-browser-bridge] startup stage: loading bearer token
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mwithholds credentials until running, rotates its path, and disposes once
+[22m[39m[dsh-browser-bridge] startup stage: registering MCP HTTP routes
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mwithholds credentials until running, rotates its path, and disposes once
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49614[39m }
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mwithholds credentials until running, rotates its path, and disposes once
+[22m[39m[dsh-browser-bridge] HTTP routes started { localOrigin: [32m'http://127.0.0.1:49614'[39m }
+[dsh-browser-bridge] startup stage: checking local MCP health
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mwithholds credentials until running, rotates its path, and disposes once
+[22m[39m[dsh-browser-bridge] local-only startup completed
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mwithholds credentials until running, rotates its path, and disposes once
+[22m[39m[dsh-browser-bridge] startup stage: waiting for workspace adapter
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mwithholds credentials until running, rotates its path, and disposes once
+[22m[39m[dsh-browser-bridge] startup stage: loading MCP path secret
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mwithholds credentials until running, rotates its path, and disposes once
+[22m[39m[dsh-browser-bridge] startup stage: loading bearer token
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mwithholds credentials until running, rotates its path, and disposes once
+[22m[39m[dsh-browser-bridge] startup stage: registering MCP HTTP routes
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mwithholds credentials until running, rotates its path, and disposes once
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49617[39m }
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mwithholds credentials until running, rotates its path, and disposes once
+[22m[39m[dsh-browser-bridge] HTTP routes started { localOrigin: [32m'http://127.0.0.1:49617'[39m }
+[dsh-browser-bridge] startup stage: checking local MCP health
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mwithholds credentials until running, rotates its path, and disposes once
+[22m[39m[dsh-browser-bridge] local-only startup completed
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mcleans up the carrier route when tunnel startup fails
+[22m[39m[dsh-browser-bridge] startup stage: waiting for workspace adapter
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mcleans up the carrier route when tunnel startup fails
+[22m[39m[dsh-browser-bridge] startup stage: loading MCP path secret
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mcleans up the carrier route when tunnel startup fails
+[22m[39m[dsh-browser-bridge] startup stage: loading bearer token
+[dsh-browser-bridge] startup stage: registering MCP HTTP routes
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mcleans up the carrier route when tunnel startup fails
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49619[39m }
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mcleans up the carrier route when tunnel startup fails
+[22m[39m[dsh-browser-bridge] HTTP routes started { localOrigin: [32m'http://127.0.0.1:49619'[39m }
+[dsh-browser-bridge] startup stage: checking local MCP health
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mcleans up the carrier route when tunnel startup fails
+[22m[39m[dsh-browser-bridge] startup stage: starting tunnel
+
+stderr | tests/runtime.test.ts > BridgeRuntime > cleans up the carrier route when tunnel startup fails
+[dsh-browser-bridge] startup failed while starting tunnel: Cloudflare Quick Tunnel exited before becoming ready: spawn missing-cloudflared-1788498016577 ENOENT
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mmarks the runtime failed when a verified tunnel exits unexpectedly
+[22m[39m[dsh-browser-bridge] startup stage: waiting for workspace adapter
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mmarks the runtime failed when a verified tunnel exits unexpectedly
+[22m[39m[dsh-browser-bridge] startup stage: loading MCP path secret
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mmarks the runtime failed when a verified tunnel exits unexpectedly
+[22m[39m[dsh-browser-bridge] startup stage: loading bearer token
+[dsh-browser-bridge] startup stage: registering MCP HTTP routes
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mmarks the runtime failed when a verified tunnel exits unexpectedly
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49621[39m }
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mmarks the runtime failed when a verified tunnel exits unexpectedly
+[22m[39m[dsh-browser-bridge] HTTP routes started { localOrigin: [32m'http://127.0.0.1:49621'[39m }
+[dsh-browser-bridge] startup stage: checking local MCP health
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mmarks the runtime failed when a verified tunnel exits unexpectedly
+[22m[39m[dsh-browser-bridge] startup stage: starting tunnel
+
+[90mstdout[2m | tests/http.test.ts[2m > [22m[2mBridgeHttpServer[2m > [22m[2mlogs sanitized origin, user-agent and body method through the 'DSH HTTP carrier'
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49649[39m }
+
+[90mstdout[2m | tests/http.test.ts[2m > [22m[2mBridgeHttpServer[2m > [22m[2muses a dsh HTTP carrier and removes its prefix route on stop
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49653[39m }
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mmarks the runtime failed when a verified tunnel exits unexpectedly
+[22m[39m[dsh-browser-bridge] startup stage: checking public MCP health
+
+[90mstdout[2m | tests/http.test.ts[2m > [22m[2mBridgeHttpServer[2m > [22m[2mfalls back to an ephemeral connector port when the preferred port is busy
+[22m[39m[dsh-browser-bridge] connector port 49661 is in use, falling back to an ephemeral port
+
+[90mstdout[2m | tests/http.test.ts[2m > [22m[2mBridgeHttpServer[2m > [22m[2mfalls back to an ephemeral connector port when the preferred port is busy
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49663[39m }
+
+ [32m✓[39m tests/client-bundle.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 5373[2mms[22m[39m
+   [33m[2m✓[22m[39m dsh client bundle[2m > [22mloads through the dsh ModuleLoader wrapper and exposes the client plugin [33m 5331[2mms[22m[39m
+[90mstdout[2m | tests/http.test.ts[2m > [22m[2mBridgeHttpServer[2m > [22m[2menforces CORS and bearer authentication through the 'DSH HTTP carrier'
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49677[39m }
+
+[90mstdout[2m | tests/http.test.ts[2m > [22m[2mBridgeHttpServer[2m > [22m[2mserves protected-resource OAuth discovery through the 'DSH HTTP carrier'
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49687[39m }
+
+[90mstdout[2m | tests/http.test.ts[2m > [22m[2mBridgeHttpServer[2m > [22m[2msupports dynamic OAuth registration, PKCE, and MCP access through the 'DSH HTTP carrier'
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49699[39m }
+
+[90mstdout[2m | tests/http.test.ts[2m > [22m[2mBridgeHttpServer[2m > [22m[2mvalidates OAuth JWT audience, expiry, and bearer compatibility through the 'DSH HTTP carrier'
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49712[39m }
+
+[90mstdout[2m | tests/http.test.ts[2m > [22m[2meffectiveBaseUrl public-origin anchoring[2m > [22m[2moauth metadata + authorization-server discovery anchor to publicOrigin when set ('DSH HTTP carrier')
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49727[39m }
+
+[90mstdout[2m | tests/http.test.ts[2m > [22m[2meffectiveBaseUrl public-origin anchoring[2m > [22m[2moauthResourceMetadataUrl() defaults to publicOrigin when called with no args
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49731[39m }
+
+ [31m❯[39m tests/http.test.ts [2m([22m[2m24 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[33m 2093[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22mprotects the local OAuth pairing endpoint[32m 117[2mms[22m[39m
+   [33m[2m✓[22m[39m BridgeHttpServer[2m > [22mserves health and completes a real Streamable HTTP MCP handshake [33m 965[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22mkeeps the public health endpoint reachable without auth and still requires the bearer token for MCP requests[32m 34[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22mallows MCP without an authorization header when secret-path mode is enabled[32m 24[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22mrecords sanitized access metadata without credentials or URLs[32m 20[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22mlogs sanitized origin, user-agent and body method through the 'standalone HTTP server'[32m 46[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22mlogs sanitized origin, user-agent and body method through the 'DSH HTTP carrier'[32m 26[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22muses a dsh HTTP carrier and removes its prefix route on stop[32m 119[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22mfalls back to an ephemeral connector port when the preferred port is busy[32m 24[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22mrejects a fixed Named Tunnel connector port owned by the DSH WebServer[32m 4[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22menforces CORS and bearer authentication through the 'standalone HTTP server'[32m 50[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22menforces CORS and bearer authentication through the 'DSH HTTP carrier'[32m 22[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22mserves protected-resource OAuth discovery through the 'standalone HTTP server'[32m 27[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22mserves protected-resource OAuth discovery through the 'DSH HTTP carrier'[32m 30[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22msupports dynamic OAuth registration, PKCE, and MCP access through the 'standalone HTTP server'[32m 82[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22msupports dynamic OAuth registration, PKCE, and MCP access through the 'DSH HTTP carrier'[32m 77[2mms[22m[39m
+[31m   [31m×[31m BridgeHttpServer[2m > [22mvalidates OAuth JWT audience, expiry, and bearer compatibility through the 'standalone HTTP server'[39m[32m 124[2mms[22m[39m
+[31m     → expected undefined to match object { iss: 'http://127.0.0.1:49702', …(1) }[39m
+   [32m✓[39m BridgeHttpServer[2m > [22mvalidates OAuth JWT audience, expiry, and bearer compatibility through the 'DSH HTTP carrier'[32m 57[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22mrejects refresh-token replay[32m 0[2mms[22m[39m
+   [32m✓[39m BridgeHttpServer[2m > [22mpersists OAuth clients and refresh tokens across server restarts[32m 125[2mms[22m[39m
+   [32m✓[39m effectiveBaseUrl public-origin anchoring[2m > [22moauth metadata + authorization-server discovery anchor to publicOrigin when set ('standalone HTTP server')[32m 50[2mms[22m[39m
+   [32m✓[39m effectiveBaseUrl public-origin anchoring[2m > [22moauth metadata + authorization-server discovery anchor to publicOrigin when set ('DSH HTTP carrier')[32m 42[2mms[22m[39m
+   [32m✓[39m effectiveBaseUrl public-origin anchoring[2m > [22moauthResourceMetadataUrl() defaults to publicOrigin when called with no args[32m 12[2mms[22m[39m
+   [32m✓[39m effectiveBaseUrl public-origin anchoring[2m > [22mfalls back to x-forwarded-* when publicOrigin not set[32m 14[2mms[22m[39m
+stderr | tests/runtime.test.ts > BridgeRuntime > marks the runtime failed when a verified tunnel exits unexpectedly
+[dsh-browser-bridge] public health check failed {
+  error: 'Health check failed for https://public-health.test/mcp/nK15MH4UnFx4oJAMS2-_U_zso83ODMUXVPyAAlbgjdw/health: Client network socket disconnected before secure TLS connection was established'
+}
+[dsh-browser-bridge] runtime became unhealthy: Tunnel exited unexpectedly (19)
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mmarks the runtime failed when a verified tunnel exits unexpectedly
+[22m[39m[dsh-browser-bridge] startup completed
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mpersists editable tunnel settings without placing a named tunnel token in config
+[22m[39m[dsh-browser-bridge] startup stage: waiting for workspace adapter
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mpersists editable tunnel settings without placing a named tunnel token in config
+[22m[39m[dsh-browser-bridge] startup stage: loading MCP path secret
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mpersists editable tunnel settings without placing a named tunnel token in config
+[22m[39m[dsh-browser-bridge] startup stage: loading bearer token
+[dsh-browser-bridge] startup stage: registering MCP HTTP routes
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mpersists editable tunnel settings without placing a named tunnel token in config
+[22m[39m[dsh-browser-bridge] local connector started { port: [33m49762[39m }
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mpersists editable tunnel settings without placing a named tunnel token in config
+[22m[39m[dsh-browser-bridge] HTTP routes started { localOrigin: [32m'http://127.0.0.1:49762'[39m }
+[dsh-browser-bridge] startup stage: checking local MCP health
+
+[90mstdout[2m | tests/runtime.test.ts[2m > [22m[2mBridgeRuntime[2m > [22m[2mpersists editable tunnel settings without placing a named tunnel token in config
+[22m[39m[dsh-browser-bridge] local-only startup completed
+
+ [32m✓[39m tests/runtime.test.ts [2m([22m[2m13 tests[22m[2m)[22m[33m 2981[2mms[22m[39m
+   [33m[2m✓[22m[39m BridgeRuntime[2m > [22mmarks the runtime failed when a verified tunnel exits unexpectedly [33m 2756[2mms[22m[39m
+ [32m✓[39m tests/tunnel.test.ts [2m([22m[2m20 tests[22m[2m)[22m[33m 7556[2mms[22m[39m
+   [33m[2m✓[22m[39m TunnelManager[2m > [22mparses a Cloudflare Quick Tunnel URL written to stderr [33m 388[2mms[22m[39m
+   [33m[2m✓[22m[39m TunnelManager[2m > [22mfails a Quick Tunnel that prints a URL without registering an edge connection [33m 786[2mms[22m[39m
+   [33m[2m✓[22m[39m TunnelManager[2m > [22mwaits for a delayed Quick Tunnel ready signal [33m 327[2mms[22m[39m
+   [33m[2m✓[22m[39m TunnelManager[2m > [22mbinds Cloudflare Quick Tunnel traffic to a selected IPv4 address [33m 648[2mms[22m[39m
+   [33m[2m✓[22m[39m TunnelManager[2m > [22mretries proxied localtunnel registration after a transient failure [33m 780[2mms[22m[39m
+   [33m[2m✓[22m[39m TunnelManager[2m > [22mfails proxied localtunnel registration after three attempts [33m 2283[2mms[22m[39m
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/http.test.ts > BridgeHttpServer > validates OAuth JWT audience, expiry, and bearer compatibility through the 'standalone HTTP server'
+AssertionError: expected undefined to match object { iss: 'http://127.0.0.1:49702', …(1) }
+
+- Expected: 
+{
+  "aud": "http://127.0.0.1:49702/mcp/standalone-jwt-secret",
+  "iss": "http://127.0.0.1:49702",
+}
+
++ Received: 
+undefined
+
+ ❯ tests/http.test.ts:925:8
+    923|       endpoint,
+    924|       Math.floor(Date.now() / 1000) + 899,
+    925|     )).toMatchObject({ iss: issuer, aud: endpoint });
+       |        ^
+    926|   });
+    927| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m14 passed[39m[22m[90m (15)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m110 passed[39m[22m[90m (111)[39m
+[2m   Start at [22m 13:00:10
+[2m   Duration [22m 11.35s[2m (transform 5.41s, setup 0ms, collect 27.90s, tests 22.47s, environment 4ms, prepare 5.45s)[22m
+

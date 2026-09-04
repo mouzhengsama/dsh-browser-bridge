@@ -474,7 +474,7 @@ export class BridgeHttpServer {
 
   private async handlePost(req: Request, res: Response): Promise<void> {
     try {
-      if (this.options.statelessMcp !== false) {
+      if (this.options.statelessMcp === true) {
         const transport = new NodeStreamableHTTPServerTransport({
           sessionIdGenerator: undefined,
           enableJsonResponse: true,
@@ -683,7 +683,7 @@ export class BridgeHttpServer {
     res: ServerResponse,
     body: unknown,
   ): Promise<void> {
-    if (this.options.statelessMcp !== false) {
+    if (this.options.statelessMcp === true) {
       const transport = new NodeStreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,
