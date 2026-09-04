@@ -11,6 +11,8 @@ coverage/
 .test-key.pem
 body.json
 headers.txt
+.tmp-e2e-*
+.tmp-lt-test.cjs
 verify*.mjs
 patch_server.py
 .mcp.json
